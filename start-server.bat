@@ -1,0 +1,16 @@
+@echo off
+title VISIT Car Wash — Server
+cd /d "%~dp0"
+echo.
+echo  ██╗   ██╗██╗███████╗██╗████████╗
+echo  ██║   ██║██║██╔════╝██║╚══██╔══╝
+echo  ██║   ██║██║███████╗██║   ██║
+echo  ╚██╗ ██╔╝██║╚════██║██║   ██║
+echo   ╚████╔╝ ██║███████║██║   ██║
+echo    ╚═══╝  ╚═╝╚══════╝╚═╝   ╚═╝
+echo.
+echo  Premium Mobile Car Wash
+echo  Starting server on http://localhost:3000
+echo.
+node_modules\.bin\next.cmd start --port 3000
+pause

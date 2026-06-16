@@ -1,0 +1,281 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+:root {
+  --background: #F8FAFF;
+  --foreground: #0F172A;
+  --brand-blue: #0EA5E9;
+  --brand-cyan: #06B6D4;
+  --brand-purple: #8B5CF6;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  color-scheme: light;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #0EA5E9;
+}
+
+/* Selection */
+::selection {
+  background: rgba(14, 165, 233, 0.2);
+  color: #0F172A;
+}
+
+/* Glass effect */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+.glass-blue {
+  background: rgba(14, 165, 233, 0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(14, 165, 233, 0.15);
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #0EA5E9 0%, #8B5CF6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-dark {
+  background: linear-gradient(135deg, #0F172A 0%, #334155 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animated gradient border */
+.gradient-border {
+  position: relative;
+  background: #FFFFFF;
+  border-radius: 16px;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 17px;
+  background: linear-gradient(135deg, rgba(14,165,233,0.5), rgba(139,92,246,0.5), rgba(14,165,233,0.5));
+  background-size: 200% 200%;
+  animation: gradient-shift 4s ease infinite;
+  z-index: -1;
+}
+
+/* Shimmer */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(0,0,0,0) 0%,
+    rgba(14,165,233,0.06) 50%,
+    rgba(0,0,0,0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+/* Glow effects */
+.glow-blue {
+  box-shadow: 0 0 30px rgba(14, 165, 233, 0.3), 0 0 60px rgba(14, 165, 233, 0.12);
+}
+
+.glow-purple {
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.3), 0 0 60px rgba(139, 92, 246, 0.12);
+}
+
+.text-glow-blue {
+  text-shadow: 0 0 20px rgba(14, 165, 233, 0.5), 0 0 40px rgba(14, 165, 233, 0.2);
+}
+
+/* Grid background */
+.grid-bg {
+  background-image: linear-gradient(rgba(14,165,233,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14,165,233,0.06) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* Premium card hover */
+.premium-card {
+  transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.premium-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 60px rgba(14,165,233,0.12), 0 0 0 1px rgba(14,165,233,0.15);
+}
+
+/* Magnetic button */
+.magnetic-btn {
+  transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.magnetic-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.magnetic-btn:hover::after {
+  opacity: 1;
+}
+
+/* Status indicators */
+.status-online {
+  width: 8px;
+  height: 8px;
+  background: #10B981;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3);
+  animation: ping-slow 3s ease infinite;
+}
+
+.status-offline {
+  width: 8px;
+  height: 8px;
+  background: #94A3B8;
+  border-radius: 50%;
+}
+
+.status-busy {
+  width: 8px;
+  height: 8px;
+  background: #F59E0B;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
+}
+
+/* Map pulse animation */
+.map-pulse {
+  animation: ripple 2s ease-out infinite;
+}
+
+/* Number counter */
+.counter-text {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Loading skeleton */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #F1F5F9 25%,
+    #E2E8F0 50%,
+    #F1F5F9 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+/* Tab active style */
+.tab-active {
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.3);
+  color: #0EA5E9;
+}
+
+/* Progress bar */
+.progress-bar {
+  background: linear-gradient(90deg, #0EA5E9, #8B5CF6);
+  border-radius: 99px;
+  transition: width 1s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Mobile safe area */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Custom animations */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+
+@keyframes ripple {
+  0% { transform: scale(0); opacity: 1; }
+  100% { transform: scale(4); opacity: 0; }
+}
+
+@keyframes orbit {
+  0% { transform: rotate(0deg) translateX(120px) rotate(0deg); }
+  100% { transform: rotate(360deg) translateX(120px) rotate(-360deg); }
+}
+
+@keyframes meteor {
+  0% { transform: rotate(215deg) translateX(0); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: rotate(215deg) translateX(-500px); opacity: 0; }
+}
+
+/* Responsive utilities */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .transform-3d {
+    transform-style: preserve-3d;
+  }
+}

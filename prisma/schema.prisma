@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── AUTH (NextAuth требует эти модели) ────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── ПОЛЬЗОВАТЕЛИ ─────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  phone         String?   @unique
+  name          String
+  password      String?
+  avatarUrl     String?
+  role          String    @default("USER")   // USER | WORKER | ADMIN
+  isVerified    Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  loyaltyPoints Int       @default(0)
+  loyaltyTier   String    @default("Bronze")
+
+  accounts      Account[]
+  sessions      Session[]
+  orders        Order[]
+  subscription  Subscription?
+  payments      Payment[]
+  notifications Notification[]
+  addresses     Address[]
+  vehicles      Vehicle[]
+  workerProfile Worker?
+  reviews       Review[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+}
+
+// ─── МАСТЕРА ──────────────────────────────────────────────
+
+model Worker {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id])
+  isOnline      Boolean   @default(false)
+  isVerified    Boolean   @default(false)
+  currentLat    Float?
+  currentLng    Float?
+  lastSeenAt    DateTime?
+  totalJobs     Int       @default(0)
+  averageRating Float     @default(0)
+  totalEarnings Float     @default(0)
+  streakDays    Int       @default(0)
+  vehicleModel  String?
+  vehiclePlate  String?
+  orders        Order[]
+  reviews       Review[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([isOnline])
+}
+
+// ─── ЗАКАЗЫ ───────────────────────────────────────────────
+
+model Order {
+  id               String    @id @default(cuid())
+  orderNumber      String    @unique
+  userId           String
+  user             User      @relation(fields: [userId], references: [id])
+  workerId         String?
+  worker           Worker?   @relation(fields: [workerId], references: [id])
+  serviceType      String    // EXPRESS | PREMIUM | ELITE_DETAIL | ECO
+  addons           String    @default("[]")  // JSON array
+  notes            String?
+  addressId        String?
+  address          Address?  @relation(fields: [addressId], references: [id])
+  locationLat      Float     @default(0)
+  locationLng      Float     @default(0)
+  locationName     String    @default("")
+  scheduledAt      DateTime?
+  acceptedAt       DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  estimatedMinutes Int?
+  status           String    @default("PENDING")
+  basePrice        Float     @default(0)
+  addonsPrice      Float     @default(0)
+  discount         Float     @default(0)
+  totalPrice       Float     @default(0)
+  beforePhotoUrls  String    @default("[]")  // JSON array
+  afterPhotoUrls   String    @default("[]")  // JSON array
+  payment          Payment?
+  review           Review?
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([workerId])
+  @@index([status])
+}
+
+// ─── ПЛАТЕЖИ ──────────────────────────────────────────────
+
+model Payment {
+  id            String    @id @default(cuid())
+  orderId       String    @unique
+  order         Order     @relation(fields: [orderId], references: [id])
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  amount        Float
+  method        String    // CLICK | PAYME | CARD | CASH
+  status        String    @default("PENDING")
+  transactionId String?
+  refundedAt    DateTime?
+  refundAmount  Float?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ─── ПОДПИСКИ ─────────────────────────────────────────────
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id])
+  plan                 String    // STARTER | PRO | BLACK
+  status               String    @default("ACTIVE")
+  washesLeft           Int
+  washesTotal          Int
+  billingCycle         String    @default("monthly")
+  pricePerCycle        Float
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  autoRenew            Boolean   @default(true)
+  cancelledAt          DateTime?
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+// ─── ОТЗЫВЫ ───────────────────────────────────────────────
+
+model Review {
+  id             String   @id @default(cuid())
+  orderId        String   @unique
+  order          Order    @relation(fields: [orderId], references: [id])
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  workerId       String
+  worker         Worker   @relation(fields: [workerId], references: [id])
+  rating         Int
+  comment        String?
+  tags           String   @default("[]")  // JSON array
+  workerResponse String?
+
+  createdAt      DateTime @default(now())
+
+  @@index([workerId])
+}
+
+// ─── АДРЕСА ───────────────────────────────────────────────
+
+model Address {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  label       String
+  fullAddress String
+  lat         Float
+  lng         Float
+  isDefault   Boolean  @default(false)
+  orders      Order[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ─── МАШИНЫ ───────────────────────────────────────────────
+
+model Vehicle {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  make         String
+  model        String
+  year         Int
+  color        String
+  plateNumber  String?
+  isDefault    Boolean   @default(false)
+  healthScore  Int       @default(100)
+  lastWashedAt DateTime?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+// ─── УВЕДОМЛЕНИЯ ──────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  data      String?  // JSON
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+// ─── ПРОМОКОДЫ ────────────────────────────────────────────
+
+model PromoCode {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  discountType String    // "percent" | "fixed"
+  discount     Float
+  maxUses      Int?
+  usedCount    Int       @default(0)
+  expiresAt    DateTime?
+  isActive     Boolean   @default(true)
+
+  createdAt    DateTime  @default(now())
+}
