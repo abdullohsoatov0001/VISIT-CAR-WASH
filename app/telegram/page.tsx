@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronRight, ArrowLeft, Droplets } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase/client";
+
+const servicePrices: Record<string, number> = { express: 49000, premium: 99000, detail: 199000, eco: 59000 };
 
 const services = [
   { id: "express", icon: "⚡", name: "Express", price: "49 000", time: "~30 min" },
@@ -26,12 +29,48 @@ export default function TelegramMiniApp() {
   const [time, setTime] = useState("Now");
   const [booked, setBooked] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [needsLogin, setNeedsLogin] = useState(false);
+  const [orderNumber, setOrderNumber] = useState("");
+  const [error, setError] = useState("");
 
   const service = services.find(s => s.id === selected)!;
 
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) setNeedsLogin(true);
+    });
+  }, []);
+
   const confirm = async () => {
+    setError("");
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1500));
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
+
+    if (!user) {
+      setLoading(false);
+      setNeedsLogin(true);
+      return;
+    }
+
+    const newOrderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
+    const loc = locations.find(l => l.id === location);
+
+    const { error: err } = await supabase.from("orders").insert({
+      user_id: user.id,
+      order_number: newOrderNumber,
+      service_type: `${service.name} Wash`,
+      status: "pending",
+      price: servicePrices[service.id],
+      location_name: loc?.address ?? "",
+      scheduled_at: time === "Now (ASAP)" ? new Date().toISOString() : null,
+    });
+
+    setLoading(false);
+    if (err) { setError("Ошибка: " + err.message); return; }
+    setOrderNumber(newOrderNumber);
     setBooked(true);
   };
 
@@ -62,14 +101,29 @@ export default function TelegramMiniApp() {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-400">Order ID</span>
-              <span className="font-mono text-brand-blue text-xs">W-1048</span>
+              <span className="font-mono text-brand-blue text-xs">{orderNumber}</span>
             </div>
           </div>
 
-          <button className="w-full h-12 rounded-xl bg-brand-blue text-white font-bold text-sm shadow-md">
+          <a href="/dashboard/tracking" className="block w-full h-12 rounded-xl bg-brand-blue text-white font-bold text-sm shadow-md flex items-center justify-center">
             {t("telegram.trackLive")} 🗺️
-          </button>
+          </a>
         </motion.div>
+      </div>
+    );
+  }
+
+  if (needsLogin) {
+    return (
+      <div className="min-h-screen bg-[#F0F7FF] flex items-center justify-center px-4 text-center">
+        <div>
+          <div className="text-4xl mb-4">🔒</div>
+          <h2 className="text-lg font-black text-slate-900 mb-2">Войдите в аккаунт VISIT</h2>
+          <p className="text-sm text-slate-500 mb-6">Чтобы оформить заказ через Telegram, нужно войти в свой аккаунт.</p>
+          <a href="/login" className="inline-block px-6 py-3 rounded-xl bg-brand-blue text-white font-bold text-sm shadow-md">
+            Войти
+          </a>
+        </div>
       </div>
     );
   }
@@ -182,7 +236,7 @@ export default function TelegramMiniApp() {
                   ["Location", locations.find(l => l.id === location)?.label || ""],
                   ["Time", time],
                   ["Price", `${service.price} so'm`],
-                  ["Payment", "💳 Saved Card ···4521"],
+                  ["Payment", "💵 При получении"],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between">
                     <span className="text-xs text-slate-400">{k}</span>
@@ -201,6 +255,7 @@ export default function TelegramMiniApp() {
 
       {/* Bottom action button */}
       <div className="p-4 bg-white border-t border-slate-200 max-w-sm mx-auto w-full shadow-lg">
+        {error && <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-2 text-center">{error}</div>}
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}

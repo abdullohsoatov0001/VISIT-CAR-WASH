@@ -135,6 +135,13 @@ export default function WorkerDashboard() {
     }
     setActiveOrder(data as Order);
     setPending(prev => prev.filter(o => o.id !== order.id));
+
+    await supabase.from("notifications").insert({
+      user_id: order.user_id,
+      type: "order",
+      title: "Мойщик найден!",
+      body: `${profile.name} принял ваш заказ ${order.order_number} и скоро будет в пути.`,
+    });
   };
 
   const rejectOrder = (id: string) => setPending(prev => prev.filter(o => o.id !== id));
@@ -148,6 +155,15 @@ export default function WorkerDashboard() {
       .update({ status: "en_route" })
       .eq("id", activeOrder.id);
     setActiveOrder(prev => prev ? { ...prev, status: "en_route" } : prev);
+
+    await supabase.from("notifications").insert({
+      user_id: activeOrder.user_id,
+      type: "order",
+      title: "Мойщик в пути!",
+      body: `Мойщик едет к вам по заказу ${activeOrder.order_number}.`,
+      urgent: true,
+    });
+
     // Открыть Google Maps с адресом клиента
     const addr = encodeURIComponent(activeOrder.location_name || "Tashkent");
     window.open(`https://www.google.com/maps/dir/?api=1&destination=${addr}`, "_blank");
@@ -170,6 +186,14 @@ export default function WorkerDashboard() {
       .from("orders")
       .update({ status: "completed", completed_at: new Date().toISOString() })
       .eq("id", activeOrder.id);
+
+    await supabase.from("notifications").insert({
+      user_id: activeOrder.user_id,
+      type: "order",
+      title: "Мойка завершена ✓",
+      body: `Заказ ${activeOrder.order_number} выполнен. Оцените мойщика в истории заказов.`,
+    });
+
     setActiveOrder(null);
   };
 

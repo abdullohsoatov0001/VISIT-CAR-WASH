@@ -8,7 +8,7 @@ import {
   Award, Zap, Navigation, CreditCard, ArrowUpRight, Package
 } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
-import { getInitials } from "@/lib/hooks/useUser";
+import { getInitials, getLoyaltyInfo, tierColors } from "@/lib/hooks/useUser";
 import { useUserContext } from "@/lib/context/UserContext";
 import { createClient } from "@/lib/supabase/client";
 
@@ -32,21 +32,6 @@ const quickServices = [
   { id: "detail", icon: "💎", label: "Detail", price: "199K", color: "bg-cyan-50 border-cyan-200 text-cyan-600", time: "~120 min" },
   { id: "eco", icon: "🌿", label: "Eco", price: "59K", color: "bg-emerald-50 border-emerald-200 text-emerald-600", time: "~45 min" },
 ];
-
-const tierColors: Record<string, string> = {
-  Bronze:   "bg-orange-50 text-orange-600 border-orange-200",
-  Silver:   "bg-slate-100 text-slate-600 border-slate-300",
-  Gold:     "bg-yellow-50 text-yellow-600 border-yellow-200",
-  Platinum: "bg-purple-50 text-purple-600 border-purple-200",
-  Elite:    "bg-gradient-to-r from-brand-blue/10 to-brand-purple/10 text-brand-blue border-brand-blue/20",
-};
-
-function getLoyaltyInfo(points: number) {
-  if (points >= 5000) return { next: "Elite",    toNext: Math.max(0, 10000 - points), progress: Math.min(100, (points - 5000) / 50) };
-  if (points >= 2500) return { next: "Platinum", toNext: 5000  - points, progress: (points - 2500) / 25 };
-  if (points >= 1000) return { next: "Gold",     toNext: 2500  - points, progress: (points - 1000) / 15 };
-  return                     { next: "Silver",   toNext: 1000  - points, progress: points / 10 };
-}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });

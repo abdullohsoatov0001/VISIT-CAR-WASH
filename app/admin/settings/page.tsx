@@ -1,19 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Bell, Save, Shield, Globe, Bell as BellIcon, CreditCard, Users, Zap } from "lucide-react";
+import { Save, Shield, Bell as BellIcon, Zap } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase/client";
+
+type Settings = {
+  new_order_alerts: boolean;
+  fraud_alerts: boolean;
+  auto_assign_workers: boolean;
+  maintenance_mode: boolean;
+};
 
 export default function AdminSettingsPage() {
   const { t } = useLanguage();
-  const [notifications, setNotifications] = useState(true);
-  const [fraud, setFraud] = useState(true);
-  const [autoAssign, setAutoAssign] = useState(true);
-  const [maintenance, setMaintenance] = useState(false);
+  const [settings, setSettings] = useState<Settings>({
+    new_order_alerts: true, fraud_alerts: true, auto_assign_workers: true, maintenance_mode: false,
+  });
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleSave = () => {
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from("app_settings").select("*").eq("id", 1).single().then(({ data }) => {
+      if (data) setSettings(data);
+      setLoading(false);
+    });
+  }, []);
+
+  const update = (key: keyof Settings, value: boolean) => setSettings(prev => ({ ...prev, [key]: value }));
+
+  const handleSave = async () => {
+    const supabase = createClient();
+    await supabase.from("app_settings").update(settings).eq("id", 1);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -30,16 +50,16 @@ export default function AdminSettingsPage() {
       icon: BellIcon,
       title: t("common.notifications"),
       items: [
-        { label: "New order alerts", desc: "Get notified for every new order", value: notifications, onChange: setNotifications },
-        { label: "Fraud detection alerts", desc: "Real-time suspicious activity alerts", value: fraud, onChange: setFraud },
+        { label: "New order alerts",      desc: "Get notified for every new order",          value: settings.new_order_alerts, onChange: (v: boolean) => update("new_order_alerts", v) },
+        { label: "Fraud detection alerts", desc: "Real-time suspicious activity alerts",      value: settings.fraud_alerts,      onChange: (v: boolean) => update("fraud_alerts", v) },
       ]
     },
     {
       icon: Zap,
       title: "Automation",
       items: [
-        { label: "Auto-assign workers", desc: "Automatically assign nearest available worker", value: autoAssign, onChange: setAutoAssign },
-        { label: "Maintenance mode", desc: "Disable new bookings for maintenance", value: maintenance, onChange: setMaintenance },
+        { label: "Auto-assign workers", desc: "Automatically assign nearest available worker", value: settings.auto_assign_workers, onChange: (v: boolean) => update("auto_assign_workers", v) },
+        { label: "Maintenance mode",    desc: "Disable new bookings for maintenance",          value: settings.maintenance_mode,    onChange: (v: boolean) => update("maintenance_mode", v) },
       ]
     },
   ];
@@ -52,7 +72,7 @@ export default function AdminSettingsPage() {
           <div className="text-xs text-slate-400">System configuration</div>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={handleSave}
+          <button onClick={handleSave} disabled={loading}
             className={`flex items-center gap-2 px-4 h-9 rounded-xl text-sm font-semibold transition-all ${saved ? "bg-emerald-500 text-white" : "bg-brand-blue text-white hover:bg-brand-blue/90"}`}>
             <Save className="w-4 h-4" /> {saved ? t("common.done") : t("common.save")}
           </button>
@@ -94,10 +114,8 @@ export default function AdminSettingsPage() {
           </div>
           <div className="space-y-2.5">
             {[
-              { label: "Version", value: "v2.4.1" },
-              { label: "Environment", value: "Production" },
-              { label: "Last deploy", value: "Jun 11, 2025" },
-              { label: "Database", value: "PostgreSQL 15" },
+              { label: "Database", value: "Supabase (PostgreSQL)" },
+              { label: "Framework", value: "Next.js 14" },
             ].map((item) => (
               <div key={item.label} className="flex justify-between text-sm">
                 <span className="text-slate-400">{item.label}</span>

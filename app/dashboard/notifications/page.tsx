@@ -1,44 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bell, Droplets, CreditCard, Star, Gift, AlertCircle,
-  Check, CheckCheck, Trash2, Navigation, Zap
+  CheckCheck, Trash2, Zap
 } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase/client";
+import { useUserContext } from "@/lib/context/UserContext";
 
 type NotifType = "order" | "payment" | "promo" | "system" | "rating";
 
 interface Notif {
-  id: number;
+  id: string;
   type: NotifType;
   title: string;
   body: string;
-  time: string;
+  created_at: string;
   read: boolean;
-  urgent?: boolean;
+  urgent: boolean;
 }
 
-const initialNotifs: Notif[] = [
-  { id: 1, type: "order", title: "Washer is 5 minutes away!", body: "Nodir T. is approaching your location — Premium Wash #W-1043.", time: "Just now", read: false, urgent: true },
-  { id: 2, type: "order", title: "Wash completed ✓", body: "Your Premium Wash has been completed. Before/after photos are ready.", time: "2h ago", read: false },
-  { id: 3, type: "rating", title: "Rate your experience", body: "How was your Express Wash on June 10 with Sardor K.?", time: "Yesterday", read: false },
-  { id: 4, type: "promo", title: "15% off — rain tomorrow 🌧️", body: "Book today before the rain hits. Discount applied automatically.", time: "Yesterday", read: true },
-  { id: 5, type: "payment", title: "Payment confirmed", body: "99 000 so'm charged to ···4521 for Premium Wash #W-1042.", time: "June 11", read: true },
-  { id: 6, type: "promo", title: "You've earned 200 points! 🎉", body: "Your Gold status is secure. 660 points until Platinum.", time: "June 11", read: true },
-  { id: 7, type: "system", title: "New feature: Car Health Score", body: "Track your car's condition over time in the History tab.", time: "June 10", read: true },
-  { id: 8, type: "order", title: "Washer assigned", body: "Jamshid U. (⭐ 4.9) has been assigned to your Elite Detail.", time: "June 8", read: true },
-  { id: 9, type: "payment", title: "Wallet top-up confirmed", body: "+200 000 so'm added to your VISIT wallet.", time: "June 10", read: true },
-  { id: 10, type: "promo", title: "Pro Plan — save 35% monthly", body: "Upgrade to Pro and get 8 Premium washes + priority booking.", time: "June 7", read: true },
-];
-
 const typeConfig: Record<NotifType, { icon: React.ElementType; color: string; bg: string; border: string }> = {
-  order: { icon: Droplets, color: "text-brand-blue", bg: "bg-brand-blue/10", border: "border-brand-blue/20" },
-  payment: { icon: CreditCard, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200" },
-  promo: { icon: Gift, color: "text-brand-purple", bg: "bg-brand-purple/10", border: "border-brand-purple/20" },
-  system: { icon: Zap, color: "text-slate-500", bg: "bg-slate-100", border: "border-slate-200" },
-  rating: { icon: Star, color: "text-yellow-500", bg: "bg-yellow-50", border: "border-yellow-200" },
+  order:   { icon: Droplets,   color: "text-brand-blue",   bg: "bg-brand-blue/10",   border: "border-brand-blue/20" },
+  payment: { icon: CreditCard, color: "text-emerald-600",  bg: "bg-emerald-50",      border: "border-emerald-200" },
+  promo:   { icon: Gift,       color: "text-brand-purple", bg: "bg-brand-purple/10", border: "border-brand-purple/20" },
+  system:  { icon: Zap,        color: "text-slate-500",    bg: "bg-slate-100",       border: "border-slate-200" },
+  rating:  { icon: Star,       color: "text-yellow-500",   bg: "bg-yellow-50",       border: "border-yellow-200" },
 };
 
 const filterTabs = ["All", "Orders", "Promotions", "Payments"] as const;
@@ -51,16 +40,65 @@ const filterMap: Record<Filter, NotifType[] | null> = {
   Payments: ["payment"],
 };
 
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 export default function DashboardNotificationsPage() {
   const { t } = useLanguage();
-  const [notifs, setNotifs] = useState<Notif[]>(initialNotifs);
+  const { profile } = useUserContext();
+  const [notifs, setNotifs] = useState<Notif[]>([]);
   const [filter, setFilter] = useState<Filter>("All");
+
+  useEffect(() => {
+    if (!profile) return;
+    const supabase = createClient();
+
+    supabase
+      .from("notifications")
+      .select("id, type, title, body, created_at, read, urgent")
+      .eq("user_id", profile.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setNotifs(data ?? []));
+
+    const channel = supabase
+      .channel(`notifications-${profile.id}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${profile.id}`,
+      }, (payload) => {
+        const row = (payload.new ?? payload.old) as Notif;
+        setNotifs((prev) => {
+          if (payload.eventType === "INSERT") return [row, ...prev];
+          if (payload.eventType === "UPDATE") return prev.map((n) => n.id === row.id ? { ...n, ...row } : n);
+          if (payload.eventType === "DELETE") return prev.filter((n) => n.id !== row.id);
+          return prev;
+        });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id]);
 
   const unreadCount = notifs.filter((n) => !n.read).length;
 
-  const markAllRead = () => setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
-  const markRead = (id: number) => setNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
-  const remove = (id: number) => setNotifs((prev) => prev.filter((n) => n.id !== id));
+  const markAllRead = async () => {
+    if (!profile) return;
+    const supabase = createClient();
+    setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
+    await supabase.from("notifications").update({ read: true }).eq("user_id", profile.id).eq("read", false);
+  };
+
+  const markRead = async (id: string) => {
+    const supabase = createClient();
+    setNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+    await supabase.from("notifications").update({ read: true }).eq("id", id);
+  };
+
+  const remove = async (id: string) => {
+    const supabase = createClient();
+    setNotifs((prev) => prev.filter((n) => n.id !== id));
+    await supabase.from("notifications").delete().eq("id", id);
+  };
 
   const filtered = notifs.filter((n) => {
     const types = filterMap[filter];
@@ -138,11 +176,9 @@ export default function DashboardNotificationsPage() {
                   onClick={() => markRead(n.id)}
                   className={`relative flex gap-3 p-4 rounded-2xl border cursor-pointer transition-all group
                     ${n.read ? "bg-white border-slate-200 hover:border-slate-300" : "bg-brand-blue/[0.03] border-brand-blue/20 hover:border-brand-blue/40"}`}>
-                  {/* Unread dot */}
                   {!n.read && (
                     <span className="absolute top-4 right-4 w-2 h-2 rounded-full bg-brand-blue flex-shrink-0" />
                   )}
-                  {/* Urgent badge */}
                   {n.urgent && (
                     <span className="absolute top-3 right-8 text-[9px] font-bold text-orange-600 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded-full flex items-center gap-1">
                       <AlertCircle className="w-2.5 h-2.5" /> URGENT
@@ -158,10 +194,9 @@ export default function DashboardNotificationsPage() {
                       {n.title}
                     </div>
                     <div className="text-xs text-slate-500 leading-relaxed">{n.body}</div>
-                    <div className="text-[10px] text-slate-400 mt-1.5 font-medium">{n.time}</div>
+                    <div className="text-[10px] text-slate-400 mt-1.5 font-medium">{formatTime(n.created_at)}</div>
                   </div>
 
-                  {/* Delete on hover */}
                   <button
                     onClick={(e) => { e.stopPropagation(); remove(n.id); }}
                     className="absolute top-3.5 right-3.5 w-6 h-6 rounded-lg flex items-center justify-center text-slate-300 hover:text-red-400 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">

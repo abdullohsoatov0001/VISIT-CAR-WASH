@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { MapPin, Phone, Check, Package, RefreshCw } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { MapPin, Phone, Check, Package, RefreshCw, X, AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
+
+const CANCELLABLE_STATUSES = ["pending", "accepted", "en_route"];
 
 type ActiveOrder = {
   id: string;
@@ -30,6 +32,8 @@ function formatPrice(n: number) { return n.toLocaleString("ru-RU"); }
 export default function DashboardTrackingPage() {
   const [order, setOrder]     = useState<ActiveOrder | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -106,6 +110,16 @@ export default function DashboardTrackingPage() {
   }
 
   const currentStep = statusSteps.findIndex(s => s.key === order.status);
+  const canCancel = CANCELLABLE_STATUSES.includes(order.status);
+
+  const handleCancel = async () => {
+    setCancelling(true);
+    const supabase = createClient();
+    await supabase.from("orders").update({ status: "cancelled" }).eq("id", order.id);
+    setCancelling(false);
+    setShowCancel(false);
+    setOrder(null);
+  };
 
   return (
     <div className="p-4 sm:p-6 max-w-2xl space-y-4">
@@ -208,6 +222,45 @@ export default function DashboardTrackingPage() {
           })}
         </div>
       </motion.div>
+
+      {/* Cancel order */}
+      {canCancel && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+          <button onClick={() => setShowCancel(true)}
+            className="w-full h-11 rounded-xl border border-red-100 bg-red-50 text-red-500 text-sm font-semibold hover:bg-red-100 transition-all">
+            Отменить заказ
+          </button>
+        </motion.div>
+      )}
+
+      {/* Cancel confirmation modal */}
+      <AnimatePresence>
+        {showCancel && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
+            onClick={() => setShowCancel(false)}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl text-center">
+              <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-6 h-6 text-red-500" />
+              </div>
+              <h3 className="font-bold text-slate-900 mb-1">Отменить заказ?</h3>
+              <p className="text-sm text-slate-400 mb-5">Заказ {order.order_number} будет отменён. Это действие нельзя отменить.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setShowCancel(false)} disabled={cancelling}
+                  className="flex-1 h-11 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold hover:bg-slate-200 transition-all">
+                  Назад
+                </button>
+                <button onClick={handleCancel} disabled={cancelling}
+                  className="flex-1 h-11 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-all disabled:opacity-60 flex items-center justify-center gap-2">
+                  {cancelling ? <X className="w-4 h-4 animate-spin" /> : "Да, отменить"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

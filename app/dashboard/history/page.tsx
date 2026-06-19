@@ -64,6 +64,12 @@ export default function DashboardHistoryPage() {
     (o.worker_name ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
+  const rateOrder = async (orderId: string, rating: number) => {
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, user_rating: rating } : o));
+    const supabase = createClient();
+    await supabase.from("orders").update({ user_rating: rating }).eq("id", orderId);
+  };
+
   const completed   = orders.filter(o => o.status === "completed");
   const totalSpent  = completed.reduce((s, o) => s + o.price, 0);
 
@@ -140,7 +146,7 @@ export default function DashboardHistoryPage() {
                   <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDate(order.created_at)}</span>
                 </div>
 
-                {(order.worker_name || order.user_rating) && (
+                {(order.worker_name || order.user_rating || order.status === "completed") && (
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
                     {order.worker_name && (
                       <div className="flex items-center gap-2">
@@ -150,13 +156,24 @@ export default function DashboardHistoryPage() {
                         <span className="text-xs text-slate-400">{order.worker_name}</span>
                       </div>
                     )}
-                    {order.user_rating && (
+                    {order.user_rating ? (
                       <div className="flex items-center gap-0.5 ml-auto">
                         {Array.from({ length: 5 }).map((_, j) => (
                           <Star key={j} className={`w-3 h-3 ${j < order.user_rating! ? "text-yellow-400 fill-yellow-400" : "text-slate-200"}`} />
                         ))}
                       </div>
-                    )}
+                    ) : order.status === "completed" ? (
+                      <div className="flex items-center gap-2 ml-auto">
+                        <span className="text-xs text-slate-400">Оценить:</span>
+                        <div className="flex items-center gap-0.5">
+                          {Array.from({ length: 5 }).map((_, j) => (
+                            <button key={j} onClick={() => rateOrder(order.id, j + 1)} className="p-0.5">
+                              <Star className="w-3.5 h-3.5 text-slate-200 hover:text-yellow-400 hover:fill-yellow-400 transition-colors" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </motion.div>

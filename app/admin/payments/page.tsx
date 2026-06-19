@@ -1,27 +1,87 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Bell, ArrowUpRight, ArrowDownRight, CreditCard, TrendingUp } from "lucide-react";
+import { Bell, ArrowUpRight, ArrowDownRight, CreditCard, TrendingUp, Check, X, Wallet } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase/client";
 
-const transactions = [
-  { id: "TXN-5021", user: "Aziz T.", amount: 99000, type: "income", method: "Click", date: "Jun 11, 10:30", status: "completed" },
-  { id: "TXN-5020", user: "Dilnoza Y.", amount: 49000, type: "income", method: "Payme", date: "Jun 11, 09:15", status: "completed" },
-  { id: "TXN-5019", user: "Rustam K.", amount: 199000, type: "income", method: "Humo", date: "Jun 10, 16:45", status: "completed" },
-  { id: "TXN-5018", user: "Lobar S.", amount: 49000, type: "income", method: "UzCard", date: "Jun 10, 14:20", status: "failed" },
-  { id: "TXN-5017", user: "Jamshid A.", amount: 59000, type: "income", method: "Click", date: "Jun 10, 11:00", status: "completed" },
-  { id: "TXN-5016", user: "Nodir T.", amount: 423000, type: "payout", method: "Bank", date: "Jun 10, 10:00", status: "completed" },
-];
+type Tx = {
+  id: string;
+  order_number: string;
+  user_id: string;
+  price: number;
+  status: string;
+  created_at: string;
+  client_name?: string;
+};
 
-const methods = [
-  { name: "Click", percent: 42, color: "bg-brand-blue" },
-  { name: "Payme", percent: 31, color: "bg-emerald-500" },
-  { name: "Humo / UzCard", percent: 19, color: "bg-brand-purple" },
-  { name: "Other", percent: 8, color: "bg-slate-300" },
-];
+type Payout = {
+  id: string;
+  worker_id: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  worker_name?: string;
+};
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
 
 export default function AdminPaymentsPage() {
   const { t } = useLanguage();
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    async function load() {
+      const [{ data: rows }, { data: payoutRows }] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("id, order_number, user_id, price, status, created_at")
+          .in("status", ["completed", "cancelled"])
+          .order("created_at", { ascending: false })
+          .limit(30),
+        supabase
+          .from("payout_requests")
+          .select("id, worker_id, amount, status, created_at")
+          .order("created_at", { ascending: false }),
+      ]);
+
+      const orders = rows ?? [];
+      const allUserIds = Array.from(new Set([...orders.map(o => o.user_id), ...(payoutRows ?? []).map(p => p.worker_id)]));
+      let names: Record<string, string> = {};
+      if (allUserIds.length > 0) {
+        const { data: profiles } = await supabase.from("profiles").select("id, name").in("id", allUserIds);
+        names = Object.fromEntries((profiles ?? []).map(p => [p.id, p.name]));
+      }
+      setTxs(orders.map(o => ({ ...o, client_name: names[o.user_id] ?? "—" })));
+      setPayouts((payoutRows ?? []).map(p => ({ ...p, worker_name: names[p.worker_id] ?? "—" })));
+      setLoading(false);
+    }
+
+    load();
+    const channel = supabase.channel("admin-payments")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "payout_requests" }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const processPayout = async (id: string, status: "paid" | "rejected") => {
+    setPayouts(prev => prev.map(p => p.id === id ? { ...p, status } : p));
+    const supabase = createClient();
+    await supabase.from("payout_requests").update({ status, processed_at: new Date().toISOString() }).eq("id", id);
+  };
+
+  const completed = txs.filter(t => t.status === "completed");
+  const totalRevenue  = completed.reduce((s, t) => s + t.price, 0);
+  const avgOrderValue = completed.length > 0 ? Math.round(totalRevenue / completed.length) : 0;
+  const failedCount   = txs.filter(t => t.status === "cancelled").length;
 
   return (
     <>
@@ -42,9 +102,9 @@ export default function AdminPaymentsPage() {
         {/* Stats */}
         <div className="grid sm:grid-cols-3 gap-4">
           {[
-            { label: t("admin.totalRevenue"), value: "42.8M so'm", change: "+18.2%", up: true, icon: TrendingUp },
-            { label: t("admin.subscriptionRevenue"), value: "18.2M so'm", change: "+24%", up: true, icon: CreditCard },
-            { label: t("admin.avgOrderValue"), value: "87,400 so'm", change: "+5.2%", up: true, icon: ArrowUpRight },
+            { label: t("admin.totalRevenue"),     value: `${(totalRevenue / 1_000_000).toFixed(2)}M so'm`, icon: TrendingUp },
+            { label: t("admin.avgOrderValue"),    value: `${avgOrderValue.toLocaleString()} so'm`,         icon: CreditCard },
+            { label: "Отменено",                  value: String(failedCount),                              icon: ArrowDownRight },
           ].map((s, i) => {
             const Icon = s.icon;
             return (
@@ -53,63 +113,76 @@ export default function AdminPaymentsPage() {
                 <div className="w-9 h-9 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center mb-3">
                   <Icon className="w-4 h-4 text-brand-blue" />
                 </div>
-                <div className="text-xl font-black text-slate-900 mb-0.5">{s.value}</div>
-                <div className="text-xs text-slate-500 mb-1">{s.label}</div>
-                <div className="text-xs text-emerald-600 flex items-center gap-0.5">
-                  <ArrowUpRight className="w-3 h-3" />{s.change} {t("admin.thisMonth")}
-                </div>
+                <div className="text-xl font-black text-slate-900 mb-0.5">{loading ? "…" : s.value}</div>
+                <div className="text-xs text-slate-500">{s.label}</div>
               </motion.div>
             );
           })}
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Methods breakdown */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="font-bold text-slate-900 text-sm mb-5">{t("payment.title")} Methods</div>
-            <div className="space-y-4">
-              {methods.map((m) => (
-                <div key={m.name}>
-                  <div className="flex justify-between text-sm mb-1.5">
-                    <span className="text-slate-700 font-medium">{m.name}</span>
-                    <span className="text-slate-900 font-bold">{m.percent}%</span>
+        {/* Payout requests */}
+        {payouts.some(p => p.status === "pending") && (
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-orange-500" />
+              <div className="font-bold text-slate-900 text-sm">Запросы на вывод</div>
+              <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full font-semibold border border-orange-200">
+                {payouts.filter(p => p.status === "pending").length}
+              </span>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {payouts.filter(p => p.status === "pending").map((p) => (
+                <div key={p.id} className="flex items-center gap-4 px-5 py-3.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-900">{p.worker_name}</div>
+                    <div className="text-xs text-slate-400">{p.amount.toLocaleString()} so'm · {formatDate(p.created_at)}</div>
                   </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <motion.div initial={{ width: 0 }} animate={{ width: `${m.percent}%` }}
-                      transition={{ duration: 1, ease: [0.23, 1, 0.32, 1] }}
-                      className={`h-full rounded-full ${m.color}`} />
-                  </div>
+                  <button onClick={() => processPayout(p.id, "paid")}
+                    className="flex items-center gap-1 h-8 px-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 text-xs font-semibold hover:bg-emerald-100 transition-all">
+                    <Check className="w-3.5 h-3.5" /> Оплачено
+                  </button>
+                  <button onClick={() => processPayout(p.id, "rejected")}
+                    className="flex items-center gap-1 h-8 px-3 rounded-lg bg-red-50 border border-red-200 text-red-500 text-xs font-semibold hover:bg-red-100 transition-all">
+                    <X className="w-3.5 h-3.5" /> Отклонить
+                  </button>
                 </div>
               ))}
             </div>
           </div>
+        )}
 
-          {/* Transactions table */}
-          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-            <div className="px-5 py-4 border-b border-slate-100">
-              <div className="font-bold text-slate-900 text-sm">{t("payment.transactions")}</div>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {transactions.map((tx, i) => (
-                <motion.div key={tx.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.06 }}
-                  className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors">
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${tx.type === "income" ? "bg-emerald-50 border border-emerald-200" : "bg-orange-50 border border-orange-200"}`}>
-                    {tx.type === "income" ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600" /> : <ArrowDownRight className="w-3.5 h-3.5 text-orange-500" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-slate-900">{tx.user}</div>
-                    <div className="text-xs text-slate-400">{tx.id} · {tx.method} · {tx.date}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-sm font-bold ${tx.type === "income" ? "text-emerald-600" : "text-orange-500"}`}>
-                      {tx.type === "income" ? "+" : "-"}{tx.amount.toLocaleString()}
-                    </div>
-                    <div className={`text-xs ${tx.status === "completed" ? "text-emerald-600" : "text-red-500"}`}>{tx.status}</div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+        {/* Transactions table */}
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-5 py-4 border-b border-slate-100">
+            <div className="font-bold text-slate-900 text-sm">{t("payment.transactions")}</div>
           </div>
+          {txs.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 text-sm">Транзакций пока нет</div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {txs.map((tx, i) => {
+                const ok = tx.status === "completed";
+                return (
+                  <motion.div key={tx.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}
+                    className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${ok ? "bg-emerald-50 border border-emerald-200" : "bg-red-50 border border-red-200"}`}>
+                      {ok ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600" /> : <ArrowDownRight className="w-3.5 h-3.5 text-red-500" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-900">{tx.client_name}</div>
+                      <div className="text-xs text-slate-400">{tx.order_number} · {formatDate(tx.created_at)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-sm font-bold ${ok ? "text-emerald-600" : "text-red-500"}`}>
+                        {ok ? "+" : ""}{tx.price.toLocaleString()}
+                      </div>
+                      <div className={`text-xs ${ok ? "text-emerald-600" : "text-red-500"}`}>{tx.status}</div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </>

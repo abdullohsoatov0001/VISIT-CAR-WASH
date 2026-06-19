@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { Wallet, TrendingUp, Car, Clock } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Wallet, TrendingUp, Car, Clock, X, Check, ArrowDownToLine } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type Order = {
@@ -11,6 +11,13 @@ type Order = {
   service_type: string;
   price: number;
   completed_at: string | null;
+  created_at: string;
+};
+
+type Payout = {
+  id: string;
+  amount: number;
+  status: string;
   created_at: string;
 };
 
@@ -24,7 +31,15 @@ function formatDate(iso: string) {
 
 export default function WorkerEarningsPage() {
   const [orders, setOrders]   = useState<Order[]>([]);
+  const [payouts, setPayouts] = useState<Payout[]>([]);
   const [loading, setLoading] = useState(true);
+  const [workerId, setWorkerId] = useState<string | null>(null);
+
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawError, setWithdrawError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [withdrawn, setWithdrawn] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -32,15 +47,24 @@ export default function WorkerEarningsPage() {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
       if (!user) { setLoading(false); return; }
+      setWorkerId(user.id);
 
-      const { data } = await supabase
-        .from("orders")
-        .select("id, order_number, service_type, price, completed_at, created_at")
-        .eq("worker_id", user.id)
-        .eq("status", "completed")
-        .order("completed_at", { ascending: false });
+      const [{ data: orderRows }, { data: payoutRows }] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("id, order_number, service_type, price, completed_at, created_at")
+          .eq("worker_id", user.id)
+          .eq("status", "completed")
+          .order("completed_at", { ascending: false }),
+        supabase
+          .from("payout_requests")
+          .select("id, amount, status, created_at")
+          .eq("worker_id", user.id)
+          .order("created_at", { ascending: false }),
+      ]);
 
-      setOrders(data ?? []);
+      setOrders(orderRows ?? []);
+      setPayouts(payoutRows ?? []);
       setLoading(false);
     }
     load();
@@ -49,6 +73,30 @@ export default function WorkerEarningsPage() {
   const totalEarnings = orders.reduce((s, o) => s + o.price, 0);
   const totalOrders   = orders.length;
   const avgPerOrder   = totalOrders > 0 ? Math.round(totalEarnings / totalOrders) : 0;
+  const requestedTotal = payouts.filter(p => p.status !== "rejected").reduce((s, p) => s + p.amount, 0);
+  const availableBalance = Math.max(0, totalEarnings - requestedTotal);
+
+  const handleWithdraw = async () => {
+    setWithdrawError("");
+    const amount = Number(withdrawAmount);
+    if (!amount || amount <= 0) { setWithdrawError("Введите сумму"); return; }
+    if (amount > availableBalance) { setWithdrawError("Сумма больше доступного баланса"); return; }
+    if (!workerId) return;
+
+    setSubmitting(true);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("payout_requests")
+      .insert({ worker_id: workerId, amount })
+      .select("id, amount, status, created_at")
+      .single();
+    setSubmitting(false);
+
+    if (data) setPayouts(prev => [data, ...prev]);
+    setWithdrawn(true);
+    setWithdrawAmount("");
+    setTimeout(() => { setWithdrawn(false); setShowWithdraw(false); }, 1500);
+  };
 
   // Group by day for chart
   const byDay = orders.reduce<Record<string, number>>((acc, o) => {
@@ -61,6 +109,19 @@ export default function WorkerEarningsPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+
+      {/* Balance + withdraw */}
+      <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}
+        className="bg-gradient-to-br from-brand-blue to-brand-purple rounded-2xl p-5 text-white shadow-lg flex items-center justify-between">
+        <div>
+          <div className="text-xs opacity-80 mb-1">Доступно к выводу</div>
+          <div className="text-2xl font-black">{formatPrice(availableBalance)} so'm</div>
+        </div>
+        <button onClick={() => setShowWithdraw(true)} disabled={availableBalance <= 0}
+          className="flex items-center gap-1.5 px-4 h-10 rounded-xl bg-white text-brand-blue text-sm font-bold shadow-md disabled:opacity-50 transition-all">
+          <ArrowDownToLine className="w-4 h-4" /> Вывести
+        </button>
+      </motion.div>
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-3">
@@ -132,6 +193,69 @@ export default function WorkerEarningsPage() {
           </div>
         )}
       </div>
+
+      {/* Payout requests */}
+      {payouts.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100">
+            <div className="text-sm font-bold text-slate-900">Запросы на вывод</div>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {payouts.map((p) => (
+              <div key={p.id} className="flex items-center justify-between px-5 py-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">{formatPrice(p.amount)} so'm</div>
+                  <div className="text-xs text-slate-400">{formatDate(p.created_at)}</div>
+                </div>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg border ${
+                  p.status === "paid" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
+                  p.status === "rejected" ? "bg-red-50 text-red-500 border-red-200" :
+                  "bg-orange-50 text-orange-600 border-orange-200"}`}>
+                  {p.status === "paid" ? "Выплачено" : p.status === "rejected" ? "Отклонён" : "В обработке"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Withdraw modal */}
+      <AnimatePresence>
+        {showWithdraw && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
+            onClick={() => setShowWithdraw(false)}>
+            <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-bold text-slate-900">Вывести деньги</h3>
+                <button onClick={() => setShowWithdraw(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+              </div>
+
+              {withdrawn ? (
+                <div className="flex items-center gap-2 text-emerald-600 text-sm font-semibold py-4 justify-center">
+                  <Check className="w-4 h-4" /> Запрос отправлен
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-400 mb-3">Доступно: {formatPrice(availableBalance)} so'm</p>
+                  {withdrawError && (
+                    <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{withdrawError}</div>
+                  )}
+                  <input type="number" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)}
+                    placeholder="Сумма, so'm"
+                    className="w-full h-12 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-brand-blue/50" />
+                  <button onClick={handleWithdraw} disabled={submitting}
+                    className="w-full h-12 mt-4 rounded-xl bg-brand-blue text-white font-semibold text-sm hover:bg-brand-blue/90 transition-all shadow-md disabled:opacity-60">
+                    {submitting ? "Отправляем…" : "Отправить запрос"}
+                  </button>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
