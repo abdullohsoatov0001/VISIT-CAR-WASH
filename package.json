@@ -39,6 +39,7 @@
     "react-hot-toast": "^2.4.1",
     "react-intersection-observer": "^9.13.0",
     "recharts": "^2.12.7",
+    "resend": "^6.14.0",
     "socket.io-client": "^4.7.5",
     "tailwind-merge": "^2.6.1",
     "typescript": "^5",

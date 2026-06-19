@@ -1,149 +1,214 @@
 "use client";
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Phone, MessageSquare, Shield, Star, Navigation, AlertCircle, X, Send } from "lucide-react";
-import { useLanguage } from "@/lib/i18n";
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { MapPin, Phone, Check, Package, RefreshCw } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import Link from "next/link";
 
-const steps = [
-  { key: "step1", done: true },
-  { key: "step2", done: true },
-  { key: "step3", done: false },
-  { key: "step4", done: false },
+type ActiveOrder = {
+  id: string;
+  order_number: string;
+  service_type: string;
+  status: string;
+  price: number;
+  location_name: string;
+  worker_name: string | null;
+  created_at: string;
+};
+
+const statusSteps = [
+  { key: "pending",     label: "Заказ создан",     desc: "Ищем мойщика рядом с вами",   icon: "🔍" },
+  { key: "accepted",    label: "Мойщик назначен",   desc: "Мойщик едет к вам",           icon: "🚗" },
+  { key: "en_route",    label: "Мойщик в пути",     desc: "Скоро будет на месте",         icon: "📍" },
+  { key: "in_progress", label: "Мойка идёт",        desc: "Ваш автомобиль моется",        icon: "✨" },
+  { key: "completed",   label: "Готово!",            desc: "Мойка завершена успешно",     icon: "🎉" },
 ];
 
-export default function DashboardTrackingPage() {
-  const { t } = useLanguage();
-  const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState([
-    { from: "worker", text: "On my way! ETA 8 minutes.", time: "10:32" },
-  ]);
+function formatPrice(n: number) { return n.toLocaleString("ru-RU"); }
 
-  const sendMessage = () => {
-    if (!message.trim()) return;
-    setMessages(m => [...m, { from: "user", text: message, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
-    setMessage("");
-  };
+export default function DashboardTrackingPage() {
+  const [order, setOrder]     = useState<ActiveOrder | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    async function load() {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) { setLoading(false); return; }
+
+      const { data } = await supabase
+        .from("orders")
+        .select("id, order_number, service_type, status, price, location_name, worker_name, created_at")
+        .eq("user_id", user.id)
+        .not("status", "in", '("completed","cancelled")')
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      setOrder(data ?? null);
+      setLoading(false);
+
+      if (!data) return;
+
+      channel = supabase
+        .channel(`tracking-${data.id}`)
+        .on("postgres_changes", {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${data.id}`,
+        }, (payload) => {
+          const updated = payload.new as ActiveOrder;
+          if (["completed", "cancelled"].includes(updated.status)) {
+            setOrder(null);
+          } else {
+            setOrder(updated);
+          }
+        })
+        .subscribe();
+    }
+
+    load();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-6 max-w-2xl">
+        <div className="bg-white border border-slate-200 rounded-2xl h-64 animate-pulse" />
+      </div>
+    );
+  }
+
+  if (!order) {
+    return (
+      <div className="p-6 max-w-2xl">
+        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm">
+          <Package className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+          <div className="font-bold text-slate-900 text-lg mb-2">Активных заказов нет</div>
+          <div className="text-sm text-slate-400 mb-6">Закажите мойку — здесь появится отслеживание</div>
+          <Link href="/booking">
+            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+              className="px-6 py-2.5 rounded-xl bg-brand-blue text-white font-semibold text-sm shadow-md">
+              Заказать мойку
+            </motion.button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const currentStep = statusSteps.findIndex(s => s.key === order.status);
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-2xl">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-black text-slate-900">{t("tracking.title")}</h1>
-        <p className="text-sm text-slate-400">{t("tracking.subtitle")}</p>
-      </div>
+    <div className="p-4 sm:p-6 max-w-2xl space-y-4">
 
-      {/* ETA card */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="bg-brand-blue text-white rounded-2xl p-5 relative overflow-hidden shadow-lg">
-        <div className="absolute inset-0 bg-gradient-to-br from-brand-blue to-brand-purple opacity-50" />
-        <div className="relative z-10 flex items-center justify-between">
+      {/* Order card */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+        className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div className="flex items-start justify-between mb-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wider opacity-80 mb-1">{t("tracking.eta")}</div>
-            <div className="text-5xl font-black">8 <span className="text-2xl">{t("common.min")}</span></div>
-            <div className="text-sm opacity-80 mt-1">{t("tracking.workerOnWay")}</div>
+            <div className="text-xs font-semibold text-brand-blue uppercase tracking-wider mb-1">
+              Заказ {order.order_number}
+            </div>
+            <div className="font-bold text-slate-900 text-lg">{order.service_type}</div>
           </div>
           <div className="text-right">
-            <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center mb-2 ml-auto">
-              <Navigation className="w-8 h-8 text-white" />
-            </div>
-            <div className="text-xs opacity-70">Nodir T.</div>
+            <div className="text-lg font-black text-slate-900">{formatPrice(order.price)}</div>
+            <div className="text-xs text-slate-400">so'm</div>
           </div>
         </div>
-        <motion.div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20 rounded-b-2xl overflow-hidden">
-          <motion.div className="h-full bg-white/60" initial={{ width: "100%" }} animate={{ width: "35%" }} transition={{ duration: 8, ease: "linear" }} />
-        </motion.div>
+        {order.location_name && (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <MapPin className="w-4 h-4 text-brand-blue flex-shrink-0" />
+            {order.location_name}
+          </div>
+        )}
       </motion.div>
 
-      {/* Map placeholder */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="h-48 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center relative">
-          <div className="text-center">
-            <Navigation className="w-8 h-8 text-brand-blue mx-auto mb-2" />
-            <div className="text-sm text-slate-500 font-medium">Live Map</div>
-            <div className="text-xs text-slate-400">Yunusobod district</div>
-          </div>
-          <motion.div animate={{ scale: [1, 1.3, 1], opacity: [0.7, 1, 0.7] }} transition={{ duration: 2, repeat: Infinity }}
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-brand-blue rounded-full shadow-lg" />
-        </div>
-      </div>
-
-      {/* Progress */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-        <div className="text-sm font-bold text-slate-900 mb-4">{t("tracking.progressTitle")}</div>
-        <div className="space-y-3">
-          {steps.map((step, i) => (
-            <div key={step.key} className="flex items-center gap-3">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${step.done ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-400 border border-slate-200"}`}>
-                {step.done ? "✓" : i + 1}
-              </div>
-              <span className={`text-sm ${step.done ? "text-slate-900 font-medium" : "text-slate-400"}`}>{t(`tracking.${step.key}`)}</span>
+      {/* Worker */}
+      {order.worker_name ? (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+          className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-blue to-brand-purple flex items-center justify-center text-white font-bold text-sm">
+              {order.worker_name[0]}
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Worker info */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-        <div className="text-sm font-bold text-slate-900 mb-4">{t("tracking.workerInfo")}</div>
-        <div className="flex items-center gap-4 mb-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-blue to-brand-purple flex items-center justify-center text-white font-bold">NT</div>
-          <div className="flex-1">
-            <div className="font-semibold text-slate-900">Nodir Toshev</div>
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-              <span className="text-yellow-500 font-semibold">4.9</span>
-              <span>· 1,204 {t("tracking.totalWashes")}</span>
+            <div>
+              <div className="font-semibold text-slate-900 text-sm">{order.worker_name}</div>
+              <div className="text-xs text-emerald-500 font-medium">Ваш мойщик</div>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-all">
-              <Phone className="w-4 h-4" />
-            </button>
-            <button className="w-10 h-10 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center text-brand-blue hover:bg-brand-blue/20 transition-all">
-              <MessageSquare className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600">
-            <Shield className="w-3 h-3" /> {t("tracking.verified")}
-          </div>
-          <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg bg-brand-blue/5 border border-brand-blue/20 text-brand-blue">
-            <Shield className="w-3 h-3" /> {t("tracking.insured")}
-          </div>
-        </div>
-      </div>
-
-      {/* Chat */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-        <div className="text-sm font-bold text-slate-900 mb-4">{t("tracking.chatTitle")}</div>
-        <div className="space-y-2 mb-3 max-h-32 overflow-y-auto">
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.from === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[75%] px-3 py-2 rounded-xl text-sm ${msg.from === "user" ? "bg-brand-blue text-white" : "bg-slate-100 text-slate-900"}`}>
-                {msg.text}
-                <div className="text-[10px] opacity-60 mt-0.5 text-right">{msg.time}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input value={message} onChange={e => setMessage(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && sendMessage()}
-            placeholder={t("tracking.messagePlaceholder")}
-            className="flex-1 h-9 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-300 focus:outline-none focus:border-brand-blue/50 transition-all" />
-          <button onClick={sendMessage}
-            className="w-9 h-9 rounded-xl bg-brand-blue flex items-center justify-center text-white hover:bg-brand-blue/90 transition-all">
-            <Send className="w-3.5 h-3.5" />
+          <button className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 hover:text-brand-blue transition-all">
+            <Phone className="w-4 h-4" />
           </button>
-        </div>
-      </div>
+        </motion.div>
+      ) : (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
+          className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
+          <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}>
+            <RefreshCw className="w-5 h-5 text-amber-500" />
+          </motion.div>
+          <div>
+            <div className="text-sm font-semibold text-amber-700">Ищем мойщика…</div>
+            <div className="text-xs text-amber-500">Обычно занимает 1–3 минуты</div>
+          </div>
+        </motion.div>
+      )}
 
-      {/* Cancel */}
-      <button className="w-full h-11 rounded-xl border border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50 transition-all flex items-center justify-center gap-2">
-        <AlertCircle className="w-4 h-4" /> {t("tracking.cancelBooking")}
-      </button>
+      {/* Status steps */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
+        className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div className="text-sm font-bold text-slate-900 mb-5">Статус заказа</div>
+        <div className="space-y-0">
+          {statusSteps.map((step, i) => {
+            const done   = i < currentStep;
+            const active = i === currentStep;
+            const future = i > currentStep;
+            return (
+              <div key={step.key} className="flex items-start gap-3">
+                <div className="flex flex-col items-center">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 border-2 transition-all ${
+                    done   ? "bg-emerald-500 border-emerald-500 text-white" :
+                    active ? "bg-brand-blue border-brand-blue text-white" :
+                             "bg-white border-slate-200 text-slate-300"
+                  }`}>
+                    {done
+                      ? <Check className="w-4 h-4" />
+                      : active
+                        ? <motion.span animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 1.5, repeat: Infinity }}>
+                            {step.icon}
+                          </motion.span>
+                        : <span className="text-xs">{step.icon}</span>
+                    }
+                  </div>
+                  {i < statusSteps.length - 1 && (
+                    <div className={`w-0.5 h-7 ${done ? "bg-emerald-300" : "bg-slate-100"}`} />
+                  )}
+                </div>
+                <div className="pt-1 pb-6">
+                  <div className={`text-sm font-semibold leading-tight ${
+                    active ? "text-brand-blue" : done ? "text-slate-900" : "text-slate-300"
+                  }`}>
+                    {step.label}
+                  </div>
+                  {active && (
+                    <div className="text-xs text-slate-400 mt-0.5">{step.desc}</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </motion.div>
+
     </div>
   );
 }

@@ -8,10 +8,20 @@ import {
   Bell, Settings, Shield, Droplets, Activity, Database, Cpu, Globe, LogOut
 } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { t } = useLanguage();
   const pathname = usePathname();
+  const router   = useRouter();
+
+  async function handleLogout() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  }
 
   const navItems = [
     { label: t("admin.overview"), icon: BarChart3, href: "/admin" },
@@ -68,10 +78,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             </div>
           ))}
           <button
-            onClick={() => {
-              document.cookie = "visit_token=; path=/; max-age=0";
-              window.location.href = "/login";
-            }}
+            onClick={handleLogout}
             className="w-full flex items-center gap-2 px-3 py-2 mt-3 rounded-xl text-xs font-semibold text-slate-400 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 transition-all">
             <LogOut className="w-3.5 h-3.5" />
             {t("common.logout")}

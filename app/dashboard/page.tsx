@@ -1,26 +1,30 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import {
-  Car, MapPin, Clock, Star, Plus, Bell, ChevronRight,
-  Award, Zap, Navigation, CreditCard, ArrowUpRight
+  Car, MapPin, Clock, Star, Bell, ChevronRight,
+  Award, Zap, Navigation, CreditCard, ArrowUpRight, Package
 } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { getInitials } from "@/lib/hooks/useUser";
 import { useUserContext } from "@/lib/context/UserContext";
+import { createClient } from "@/lib/supabase/client";
 
-const recentOrders = [
-  { id: "W-1042", service: "Premium Wash", date: "Today, 10:30", status: "completed", price: "99 000", worker: "Jamshid U.", rating: 5, location: "Yunusobod" },
-  { id: "W-1039", service: "Express Wash", date: "Yesterday, 14:00", status: "completed", price: "49 000", worker: "Sardor K.", rating: 4, location: "Chilonzor" },
-  { id: "W-1031", service: "Elite Detail", date: "Jun 8, 09:15", status: "completed", price: "199 000", worker: "Bobur M.", rating: 5, location: "Mirzo Ulugbek" },
-];
-
-const activeOrder = { id: "W-1043", service: "Premium Wash", worker: "Nodir T.", workerRating: 4.8, eta: "8 min", status: "en-route", price: "99 000" };
-const loyaltyPoints = 2340;
-const level = "Gold";
-const nextLevel = "Platinum";
-const pointsToNext = 660;
+type Order = {
+  id: string;
+  order_number: string;
+  service_type: string;
+  status: string;
+  price: number;
+  location_name: string;
+  worker_name: string | null;
+  worker_rating: number | null;
+  user_rating: number | null;
+  created_at: string;
+  completed_at: string | null;
+};
 
 const quickServices = [
   { id: "express", icon: "⚡", label: "Express", price: "49K", color: "bg-brand-blue/10 border-brand-blue/20 text-brand-blue", time: "~30 min" },
@@ -29,18 +33,94 @@ const quickServices = [
   { id: "eco", icon: "🌿", label: "Eco", price: "59K", color: "bg-emerald-50 border-emerald-200 text-emerald-600", time: "~45 min" },
 ];
 
-const recommendations = [
-  { icon: "🌧️", title: "Rain expected tomorrow", desc: "Book a wash now before the rain — 15% off today.", cta: "Book Express", urgent: true },
-  { icon: "📅", title: "You haven't washed in 14 days", desc: "Your Premium Membership includes 2 more washes this month.", cta: "Book Now" },
-];
+const tierColors: Record<string, string> = {
+  Bronze:   "bg-orange-50 text-orange-600 border-orange-200",
+  Silver:   "bg-slate-100 text-slate-600 border-slate-300",
+  Gold:     "bg-yellow-50 text-yellow-600 border-yellow-200",
+  Platinum: "bg-purple-50 text-purple-600 border-purple-200",
+  Elite:    "bg-gradient-to-r from-brand-blue/10 to-brand-purple/10 text-brand-blue border-brand-blue/20",
+};
+
+function getLoyaltyInfo(points: number) {
+  if (points >= 5000) return { next: "Elite",    toNext: Math.max(0, 10000 - points), progress: Math.min(100, (points - 5000) / 50) };
+  if (points >= 2500) return { next: "Platinum", toNext: 5000  - points, progress: (points - 2500) / 25 };
+  if (points >= 1000) return { next: "Gold",     toNext: 2500  - points, progress: (points - 1000) / 15 };
+  return                     { next: "Silver",   toNext: 1000  - points, progress: points / 10 };
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatPrice(n: number) {
+  return n.toLocaleString("ru-RU");
+}
+
+const STATUS_ACTIVE = ["pending", "accepted", "en_route", "in_progress"];
 
 export default function UserDashboard() {
   const { t } = useLanguage();
   const { profile } = useUserContext();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
 
-  const firstName  = profile?.name?.split(" ")[0] ?? "…";
-  const initials   = profile ? getInitials(profile.name) : "…";
-  const today      = new Date().toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const firstName     = profile?.name?.split(" ")[0] ?? "…";
+  const initials      = profile ? getInitials(profile.name) : "…";
+  const today         = new Date().toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const loyaltyPoints = profile?.loyalty_points ?? 0;
+  const loyaltyTier   = profile?.loyalty_tier   ?? "Bronze";
+  const loyalty       = getLoyaltyInfo(loyaltyPoints);
+  const totalWashes   = profile?.total_washes   ?? 0;
+  const totalSpent    = profile?.total_spent    ?? 0;
+  const tierColor     = tierColors[loyaltyTier] ?? tierColors.Bronze;
+
+  useEffect(() => {
+    const supabase = createClient();
+    let userId: string | null = null;
+
+    async function fetchOrders() {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) { setOrdersLoading(false); return; }
+      userId = user.id;
+
+      const { data } = await supabase
+        .from("orders")
+        .select("id, order_number, service_type, status, price, location_name, worker_name, worker_rating, user_rating, created_at, completed_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      setOrders(data ?? []);
+      setOrdersLoading(false);
+    }
+
+    fetchOrders();
+
+    // Realtime — обновляет заказы когда мойщик принимает/меняет статус
+    const channel = supabase
+      .channel("dashboard-orders")
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "orders",
+      }, (payload) => {
+        const row = (payload.new ?? payload.old) as Order;
+        if (!userId) return;
+        setOrders(prev => {
+          const exists = prev.find(o => o.id === row.id);
+          if (payload.eventType === "INSERT" && !exists) return [row, ...prev];
+          if (payload.eventType === "UPDATE") return prev.map(o => o.id === row.id ? { ...o, ...row } : o);
+          if (payload.eventType === "DELETE") return prev.filter(o => o.id !== row.id);
+          return prev;
+        });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const activeOrder  = orders.find(o => STATUS_ACTIVE.includes(o.status));
+  const recentOrders = orders.filter(o => o.status === "completed").slice(0, 3);
 
   return (
     <>
@@ -53,19 +133,19 @@ export default function UserDashboard() {
         <div className="flex items-center gap-2">
           <button className="relative w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-all">
             <Bell className="w-4 h-4" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-brand-blue rounded-full" />
           </button>
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-blue to-brand-purple flex items-center justify-center text-white text-xs font-bold">{initials}</div>
         </div>
       </div>
 
       <div className="p-4 sm:p-6 space-y-6">
+
         {/* Active Order Banner */}
         {activeOrder && (
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
             className="bg-brand-blue/5 border border-brand-blue/20 rounded-2xl p-4 relative overflow-hidden">
             <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-brand-blue/5 to-transparent" />
-            <div className="relative z-10 flex items-center justify-between">
+            <div className="relative z-10 flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="relative">
                   <div className="w-11 h-11 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
@@ -75,17 +155,19 @@ export default function UserDashboard() {
                     className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-semibold text-brand-blue uppercase tracking-wider">{t("dashboard.activeOrder")}</span>
-                    <span className="text-xs text-slate-400">#{activeOrder.id}</span>
+                  <div className="text-xs font-semibold text-brand-blue uppercase tracking-wider mb-0.5">
+                    {t("dashboard.activeOrder")} · #{activeOrder.order_number}
                   </div>
-                  <div className="font-bold text-slate-900">{activeOrder.worker} {t("tracking.workerOnWay").toLowerCase()}</div>
-                  <div className="text-sm text-slate-500">{activeOrder.service} · {t("dashboard.etaLabel")} <span className="text-emerald-600 font-semibold">{activeOrder.eta}</span></div>
+                  <div className="font-bold text-slate-900">{activeOrder.service_type}</div>
+                  <div className="text-sm text-slate-500">
+                    {activeOrder.worker_name ? `${activeOrder.worker_name} · ` : ""}
+                    <span className="capitalize">{activeOrder.status.replace("_", " ")}</span>
+                  </div>
                 </div>
               </div>
               <Link href="/dashboard/tracking">
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm font-semibold shadow-sm">
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm font-semibold shadow-sm whitespace-nowrap">
                   {t("dashboard.trackLive")} <Navigation className="w-3.5 h-3.5" />
                 </motion.button>
               </Link>
@@ -97,7 +179,9 @@ export default function UserDashboard() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold text-slate-900">{t("dashboard.quickBook")}</h2>
-            <Link href="/booking" className="text-xs text-brand-blue hover:text-brand-blue/80 flex items-center gap-1">{t("dashboard.seeAll")} <ChevronRight className="w-3 h-3" /></Link>
+            <Link href="/booking" className="text-xs text-brand-blue hover:text-brand-blue/80 flex items-center gap-1">
+              {t("dashboard.seeAll")} <ChevronRight className="w-3 h-3" />
+            </Link>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {quickServices.map((s, i) => (
@@ -114,75 +198,83 @@ export default function UserDashboard() {
           </div>
         </div>
 
-        {/* AI Recommendations */}
-        <div>
-          <div className="flex items-center gap-2 mb-4">
-            <Zap className="w-4 h-4 text-brand-blue" />
-            <h2 className="font-bold text-slate-900">{t("dashboard.aiRecommendations")}</h2>
-          </div>
-          <div className="space-y-3">
-            {recommendations.map((r, i) => (
-              <motion.div key={i} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}
-                className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${r.urgent ? "bg-orange-50 border-orange-200" : "bg-white border-slate-200"}`}>
-                <span className="text-2xl flex-shrink-0">{r.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-900 text-sm mb-0.5">{r.title}</div>
-                  <div className="text-xs text-slate-400 leading-relaxed">{r.desc}</div>
-                </div>
-                <Link href="/booking">
-                  <button className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${r.urgent ? "bg-orange-500 text-white" : "bg-brand-blue/10 text-brand-blue border border-brand-blue/20 hover:bg-brand-blue/20"}`}>
-                    {r.cta}
-                  </button>
-                </Link>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* Recent Orders */}
+          {/* Orders */}
           <div className="lg:col-span-2">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-slate-900">{t("dashboard.recentOrders")}</h2>
-              <Link href="/dashboard/history" className="text-xs text-brand-blue hover:text-brand-blue/80 flex items-center gap-1">{t("dashboard.seeAll")} <ChevronRight className="w-3 h-3" /></Link>
+              {recentOrders.length > 0 && (
+                <Link href="/dashboard/history" className="text-xs text-brand-blue hover:text-brand-blue/80 flex items-center gap-1">
+                  {t("dashboard.seeAll")} <ChevronRight className="w-3 h-3" />
+                </Link>
+              )}
             </div>
-            <div className="space-y-3">
-              {recentOrders.map((order, i) => (
-                <motion.div key={order.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 hover:border-brand-blue/20 transition-all cursor-pointer shadow-sm">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
-                        <Car className="w-5 h-5 text-emerald-600" />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-slate-900 text-sm">{order.service}</div>
-                        <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-                          <MapPin className="w-3 h-3" />{order.location}
-                          <span>·</span>
-                          <Clock className="w-3 h-3" />{order.date}
+
+            {ordersLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 animate-pulse h-24" />
+                ))}
+              </div>
+            ) : recentOrders.length === 0 ? (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                className="bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-sm">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center mx-auto mb-4">
+                  <Package className="w-6 h-6 text-slate-400" />
+                </div>
+                <div className="font-bold text-slate-900 mb-1">Заказов пока нет</div>
+                <div className="text-sm text-slate-400 mb-6">Закажите первую мойку — мастер приедет к вам</div>
+                <Link href="/booking">
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    className="px-6 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold shadow-md hover:bg-brand-blue/90 transition-all">
+                    Заказать мойку
+                  </motion.button>
+                </Link>
+              </motion.div>
+            ) : (
+              <div className="space-y-3">
+                {recentOrders.map((order, i) => (
+                  <motion.div key={order.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
+                    className="bg-white border border-slate-200 rounded-2xl p-4 hover:border-brand-blue/20 transition-all cursor-pointer shadow-sm">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                          <Car className="w-5 h-5 text-emerald-600" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-slate-900 text-sm">{order.service_type}</div>
+                          <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                            {order.location_name && <><MapPin className="w-3 h-3" />{order.location_name}<span>·</span></>}
+                            <Clock className="w-3 h-3" />{formatDate(order.created_at)}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold text-slate-900 text-sm">{order.price}</div>
-                      <div className="flex items-center gap-0.5 justify-end mt-1">
-                        {Array.from({ length: 5 }).map((_, j) => (
-                          <Star key={j} className={`w-2.5 h-2.5 ${j < order.rating ? "text-yellow-400 fill-yellow-400" : "text-slate-200"}`} />
-                        ))}
+                      <div className="text-right">
+                        <div className="font-bold text-slate-900 text-sm">{formatPrice(order.price)} so'm</div>
+                        {order.user_rating && (
+                          <div className="flex items-center gap-0.5 justify-end mt-1">
+                            {Array.from({ length: 5 }).map((_, j) => (
+                              <Star key={j} className={`w-2.5 h-2.5 ${j < (order.user_rating ?? 0) ? "text-yellow-400 fill-yellow-400" : "text-slate-200"}`} />
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
-                    <div className="w-5 h-5 rounded-full bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center text-[9px] font-bold text-brand-blue">
-                      {order.worker[0]}
-                    </div>
-                    <span className="text-xs text-slate-400">{order.worker}</span>
-                    <span className="ml-auto text-xs px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-600 font-medium border border-emerald-200">{t("common.completed")}</span>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+                    {order.worker_name && (
+                      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+                        <div className="w-5 h-5 rounded-full bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center text-[9px] font-bold text-brand-blue">
+                          {order.worker_name[0]}
+                        </div>
+                        <span className="text-xs text-slate-400">{order.worker_name}</span>
+                        <span className="ml-auto text-xs px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-600 font-medium border border-emerald-200">
+                          {t("common.completed")}
+                        </span>
+                      </div>
+                    )}
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Right panel */}
@@ -194,18 +286,18 @@ export default function UserDashboard() {
                   <Award className="w-4 h-4 text-yellow-500" />
                   <span className="font-bold text-slate-900 text-sm">{t("dashboard.loyaltyPoints")}</span>
                 </div>
-                <span className="text-xs bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg font-semibold border border-yellow-200">{level}</span>
+                <span className={`text-xs px-2 py-1 rounded-lg font-semibold border ${tierColor}`}>{loyaltyTier}</span>
               </div>
               <div className="text-3xl font-black text-slate-900 mb-1">{loyaltyPoints.toLocaleString()}</div>
-              <div className="text-xs text-slate-400 mb-4">{pointsToNext} {t("dashboard.pointsToNext")} {nextLevel}</div>
+              <div className="text-xs text-slate-400 mb-4">{loyalty.toNext} {t("dashboard.pointsToNext")} {loyalty.next}</div>
               <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                <motion.div initial={{ width: 0 }} animate={{ width: `${(loyaltyPoints / (loyaltyPoints + pointsToNext)) * 100}%` }}
+                <motion.div initial={{ width: 0 }} animate={{ width: `${loyalty.progress}%` }}
                   transition={{ duration: 1.2, delay: 0.5, ease: [0.23, 1, 0.32, 1] }}
                   className="h-full bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full" />
               </div>
               <div className="flex justify-between text-xs text-slate-400 mt-1.5">
-                <span>{level}</span>
-                <span>{nextLevel}</span>
+                <span>{loyaltyTier}</span>
+                <span>{loyalty.next}</span>
               </div>
             </div>
 
@@ -213,21 +305,28 @@ export default function UserDashboard() {
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
               <h3 className="font-bold text-slate-900 text-sm mb-4">{t("dashboard.thisMonth")}</h3>
               <div className="space-y-3">
-                {[
-                  { labelKey: "dashboard.totalWashes", value: "7", icon: Car, color: "text-brand-blue" },
-                  { labelKey: "dashboard.totalSpent", value: "483 000", icon: CreditCard, color: "text-brand-purple" },
-                  { labelKey: "dashboard.timeSaved", value: "~14 hrs", icon: Clock, color: "text-emerald-600" },
-                ].map((s) => {
-                  const Icon = s.icon;
-                  return (
-                    <div key={s.labelKey} className="flex items-center justify-between">
-                      <div className={`flex items-center gap-2 text-xs text-slate-400`}>
-                        <Icon className="w-4 h-4" />{t(s.labelKey)}
-                      </div>
-                      <span className={`text-sm font-bold ${s.color}`}>{s.value}</span>
-                    </div>
-                  );
-                })}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <Car className="w-4 h-4" />{t("dashboard.totalWashes")}
+                  </div>
+                  <span className="text-sm font-bold text-brand-blue">{totalWashes}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <CreditCard className="w-4 h-4" />{t("dashboard.totalSpent")}
+                  </div>
+                  <span className="text-sm font-bold text-brand-purple">
+                    {totalSpent > 0 ? `${formatPrice(totalSpent)} so'm` : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <Clock className="w-4 h-4" />{t("dashboard.timeSaved")}
+                  </div>
+                  <span className="text-sm font-bold text-emerald-600">
+                    {totalWashes > 0 ? `~${totalWashes * 2} hrs` : "—"}
+                  </span>
+                </div>
               </div>
             </div>
 

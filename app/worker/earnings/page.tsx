@@ -1,134 +1,138 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Wallet, TrendingUp, Calendar, ArrowUpRight } from "lucide-react";
-import { useLanguage } from "@/lib/i18n";
+import { Wallet, TrendingUp, Car, Clock } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
-const weeklyData = [
-  { day: "Mon", amount: 87000 },
-  { day: "Tue", amount: 123000 },
-  { day: "Wed", amount: 56000 },
-  { day: "Thu", amount: 145000 },
-  { day: "Fri", amount: 198000 },
-  { day: "Sat", amount: 210000 },
-  { day: "Sun", amount: 99000 },
-];
+type Order = {
+  id: string;
+  order_number: string;
+  service_type: string;
+  price: number;
+  completed_at: string | null;
+  created_at: string;
+};
 
-const monthlyData = [
-  { week: "W1", amount: 620000 },
-  { week: "W2", amount: 780000 },
-  { week: "W3", amount: 540000 },
-  { week: "W4", amount: 918000 },
-];
+function formatPrice(n: number) {
+  return n.toLocaleString("ru-RU");
+}
 
-const transactions = [
-  { date: "Jun 12", desc: "Premium Wash × 3", amount: 297000 },
-  { date: "Jun 11", desc: "Express Wash × 5", amount: 245000 },
-  { date: "Jun 10", desc: "Elite Detail × 1 + Premium × 2", amount: 397000 },
-  { date: "Jun 9", desc: "Eco Wash × 4", amount: 236000 },
-  { date: "Jun 8", desc: "Express Wash × 3", amount: 147000 },
-];
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
 
 export default function WorkerEarningsPage() {
-  const { t } = useLanguage();
-  const weeklyTotal = weeklyData.reduce((s, d) => s + d.amount, 0);
-  const maxWeek = Math.max(...weeklyData.map(d => d.amount));
-  const maxMonth = Math.max(...monthlyData.map(d => d.amount));
+  const [orders, setOrders]   = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const supabase = createClient();
+    async function load() {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) { setLoading(false); return; }
+
+      const { data } = await supabase
+        .from("orders")
+        .select("id, order_number, service_type, price, completed_at, created_at")
+        .eq("worker_id", user.id)
+        .eq("status", "completed")
+        .order("completed_at", { ascending: false });
+
+      setOrders(data ?? []);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  const totalEarnings = orders.reduce((s, o) => s + o.price, 0);
+  const totalOrders   = orders.length;
+  const avgPerOrder   = totalOrders > 0 ? Math.round(totalEarnings / totalOrders) : 0;
+
+  // Group by day for chart
+  const byDay = orders.reduce<Record<string, number>>((acc, o) => {
+    const day = formatDate(o.completed_at ?? o.created_at);
+    acc[day] = (acc[day] ?? 0) + o.price;
+    return acc;
+  }, {});
+  const chartData = Object.entries(byDay).slice(0, 7).reverse();
+  const maxVal    = Math.max(...chartData.map(([, v]) => v), 1);
 
   return (
-    <>
-      <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl border-b border-slate-200 px-4 py-4 shadow-sm">
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-lg font-black text-slate-900">{t("worker.navEarnings")}</h1>
-          <p className="text-xs text-slate-400">{t("worker.thisWeek")}</p>
-        </div>
+    <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Заработано",    value: `${formatPrice(Math.round(totalEarnings / 1000))}K`, icon: Wallet,     color: "text-brand-blue",   bg: "bg-brand-blue/10 border-brand-blue/20" },
+          { label: "Заказов",       value: totalOrders,                                          icon: Car,        color: "text-brand-purple", bg: "bg-brand-purple/10 border-brand-purple/20" },
+          { label: "Средний чек",   value: `${formatPrice(Math.round(avgPerOrder / 1000))}K`,   icon: TrendingUp, color: "text-emerald-600",  bg: "bg-emerald-50 border-emerald-200" },
+        ].map((s, i) => {
+          const Icon = s.icon;
+          return (
+            <motion.div key={s.label} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}
+              className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className={`w-8 h-8 rounded-xl border flex items-center justify-center mb-2 ${s.bg} ${s.color}`}>
+                <Icon className="w-4 h-4" />
+              </div>
+              <div className="text-xl font-black text-slate-900">{s.value}</div>
+              <div className="text-xs text-slate-400 mt-0.5">{s.label}</div>
+            </motion.div>
+          );
+        })}
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
-        {/* Summary cards */}
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: t("worker.weeklyEarnings"), value: `${(weeklyTotal / 1000).toFixed(0)}K`, sub: "so'm", icon: Wallet, color: "text-brand-blue", bg: "bg-brand-blue/10 border-brand-blue/20" },
-            { label: t("worker.vsLastWeek"), value: "+12%", sub: "", icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200" },
-          ].map((s, i) => {
-            const Icon = s.icon;
-            return (
-              <motion.div key={s.label} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
-                className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-                <div className={`w-8 h-8 rounded-xl border flex items-center justify-center mb-2 ${s.bg} ${s.color}`}>
-                  <Icon className="w-4 h-4" />
-                </div>
-                <div className="text-2xl font-black text-slate-900">{s.value} <span className="text-xs font-normal text-slate-400">{s.sub}</span></div>
-                <div className="text-xs text-slate-400 mt-0.5">{s.label}</div>
-              </motion.div>
-            );
-          })}
-        </div>
-
-        {/* Weekly bar chart */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-slate-900">{t("worker.thisWeek")}</h2>
-            <span className="text-xs text-brand-blue font-semibold">{(weeklyTotal / 1000).toFixed(0)}K so'm</span>
-          </div>
-          <div className="flex items-end justify-between gap-2 h-32">
-            {weeklyData.map((d, i) => (
-              <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+      {/* Chart */}
+      {chartData.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+          <div className="text-sm font-bold text-slate-900 mb-4">По дням (последние 7)</div>
+          <div className="flex items-end gap-2 h-24">
+            {chartData.map(([day, val]) => (
+              <div key={day} className="flex-1 flex flex-col items-center gap-1">
                 <motion.div
-                  initial={{ height: 0 }} animate={{ height: `${(d.amount / maxWeek) * 100}%` }}
-                  transition={{ delay: i * 0.06, duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
-                  className="w-full rounded-t-lg bg-gradient-to-t from-brand-blue to-brand-blue/60 min-h-[4px]" />
-                <span className="text-[10px] text-slate-400">{d.day}</span>
+                  initial={{ height: 0 }} animate={{ height: `${(val / maxVal) * 80}px` }}
+                  transition={{ duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
+                  className="w-full bg-gradient-to-t from-brand-blue to-brand-blue/60 rounded-t-lg min-h-[4px]"
+                />
+                <div className="text-[10px] text-slate-400 truncate w-full text-center">{day}</div>
               </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Monthly breakdown */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-          className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-slate-900">June 2026</h2>
-            <div className="flex items-center gap-1 text-xs text-emerald-600 font-semibold">
-              <ArrowUpRight className="w-3 h-3" /> 2.86M so'm
-            </div>
-          </div>
-          <div className="space-y-3">
-            {monthlyData.map((w, i) => (
-              <div key={w.week} className="flex items-center gap-3">
-                <div className="w-6 text-xs text-slate-400 text-right">{w.week}</div>
-                <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden">
-                  <motion.div initial={{ width: 0 }} animate={{ width: `${(w.amount / maxMonth) * 100}%` }}
-                    transition={{ delay: i * 0.1 + 0.2, duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
-                    className="h-full rounded-full bg-gradient-to-r from-brand-blue to-brand-purple" />
-                </div>
-                <div className="w-16 text-xs font-semibold text-slate-900 text-right">{(w.amount / 1000).toFixed(0)}K</div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Daily breakdown */}
-        <div>
-          <h2 className="text-sm font-bold text-slate-900 mb-3">{t("worker.todayJobs")}</h2>
-          <div className="space-y-2">
-            {transactions.map((tx, i) => (
-              <motion.div key={tx.date} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
-                className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
-                  <Calendar className="w-4 h-4 text-emerald-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-slate-500">{tx.date}</div>
-                  <div className="text-sm font-medium text-slate-700 truncate">{tx.desc}</div>
-                </div>
-                <div className="text-sm font-bold text-emerald-600">+{(tx.amount / 1000).toFixed(0)}K</div>
-              </motion.div>
             ))}
           </div>
         </div>
+      )}
+
+      {/* Transaction list */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <div className="text-sm font-bold text-slate-900">История заказов</div>
+        </div>
+
+        {loading ? (
+          <div className="p-5 space-y-3">
+            {[1,2,3].map(i => <div key={i} className="h-12 bg-slate-50 rounded-xl animate-pulse" />)}
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="p-10 text-center">
+            <Clock className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+            <div className="text-sm text-slate-400">Выполненных заказов нет</div>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {orders.map((o, i) => (
+              <motion.div key={o.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}
+                className="flex items-center justify-between px-5 py-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">{o.service_type}</div>
+                  <div className="text-xs text-slate-400">{o.order_number} · {formatDate(o.completed_at ?? o.created_at)}</div>
+                </div>
+                <div className="text-sm font-bold text-emerald-600">+{formatPrice(o.price)} so'm</div>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
-    </>
+
+    </div>
   );
 }

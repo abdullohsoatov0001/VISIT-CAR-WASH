@@ -1,16 +1,24 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Droplets, Mail, Smartphone, CheckCircle, RefreshCw, ArrowLeft, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { roleRedirect } from "@/lib/hooks/useUser";
 
-const OTP_LENGTH = 8;
+const OTP_LENGTH = 6;
 const RESEND_COOLDOWN = 60;
 
 export default function VerifyPage() {
+  return (
+    <Suspense fallback={null}>
+      <VerifyForm />
+    </Suspense>
+  );
+}
+
+function VerifyForm() {
   const router = useRouter();
   const params = useSearchParams();
   const supabase = createClient();

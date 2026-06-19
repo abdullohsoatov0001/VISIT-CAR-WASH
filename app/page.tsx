@@ -337,24 +337,24 @@ function PricingSection() {
     {
       nameKey: "landing.planExpressName", descKey: "landing.planExpressDesc",
       price: "49 000", popular: false, color: "default",
-      features: ["Exterior wash", "Window cleaning", "Tire shine", "Up to 45 min", "Basic tracking"],
+      features: ["Exterior wash & dry", "Window cleaning", "Tire shine", "Up to 45 min", "Basic tracking"],
     },
     {
       nameKey: "landing.planPremiumName", descKey: "landing.planPremiumDesc",
       price: "99 000", popular: true, color: "blue",
-      features: ["Full exterior + interior", "Deep vacuum", "Dashboard polish", "Before/After photos", "Live tracking", "Priority support"],
+      features: ["Full exterior + interior", "Salon vacuuming", "Window cleaning", "Dashboard polish", "Before/After photos", "Live tracking"],
     },
     {
       nameKey: "landing.planEliteName", descKey: "landing.planEliteDesc",
       price: "199 000", popular: false, color: "purple",
-      features: ["Full ceramic treatment", "Engine bay cleaning", "Leather conditioning", "Odor elimination", "Before/After photos", "Dedicated specialist", "AI car health report"],
+      features: ["Full wash", "Chemical interior clean", "Fragrance treatment", "Polish & shine", "Before/After photos", "Dedicated specialist"],
     },
   ];
 
   const subscriptions = [
-    { nameKey: "Starter", washes: 4, price: "159 000", savings: "20%", icon: <Droplets className="w-5 h-5" />, color: "default", perks: ["4 Express washes/month", "Schedule in advance", "Free rescheduling"] },
-    { nameKey: "Pro", washes: 8, price: "299 000", savings: "35%", icon: <Star className="w-5 h-5" />, color: "blue", perks: ["8 Premium washes/month", "AI recommendations", "Priority booking", "Monthly car report"] },
-    { nameKey: "Black", washes: 12, price: "499 000", savings: "50%", icon: <Award className="w-5 h-5" />, color: "purple", perks: ["Unlimited washes", "VIP specialists only", "Concierge support", "Elite detail included", "Black card"] },
+    { nameKey: "Starter", washes: 4, price: "159 000", savings: "20%", icon: <Droplets className="w-5 h-5" />, color: "default", perks: ["4 Basic washes/month", "Schedule in advance", "Free rescheduling"] },
+    { nameKey: "Pro", washes: 8, price: "279 000", savings: "35%", icon: <Star className="w-5 h-5" />, color: "blue", perks: ["8 Premium washes/month", "Priority booking", "Before/After photos", "Monthly car report"] },
+    { nameKey: "Black", washes: 12, price: "449 000", savings: "50%", icon: <Award className="w-5 h-5" />, color: "purple", perks: ["12 VIP washes/month", "VIP specialists only", "Tire & battery check", "Concierge support"] },
   ];
 
   return (
@@ -451,7 +451,7 @@ function TestimonialsSection() {
     { name: "Dilnoza Yusupova", role: "Marketing Director", avatar: "DY", text: "I booked during a meeting. By the time I walked out, my car was spotless. This is the future of car care.", rating: 5, location: "Tashkent" },
     { name: "Rustam Karimov", role: "Software Engineer", avatar: "RK", text: "The live tracking feature is insane. I could literally watch the washer navigate to my parking spot. 10/10.", rating: 5, location: "Almaty" },
     { name: "Aziz Toshmatov", role: "Entrepreneur", avatar: "AT", text: "Premium Black membership is worth every penny. VIP priority and my car is always immaculate.", rating: 5, location: "Dubai" },
-    { name: "Nodira Rashidova", role: "Doctor", avatar: "NR", text: "As a busy doctor, time is everything. VISIT gives me back 2 hours a week. Life-changing app.", rating: 5, location: "Tashkent" },
+    { name: "Nodira Rashidova", role: "Doctor", avatar: "NR", text: "As a busy doctor, time is everything. Wash Go gives me back 2 hours a week. Life-changing app.", rating: 5, location: "Tashkent" },
   ];
 
   return (
@@ -616,7 +616,7 @@ function Footer() {
               <div className="w-9 h-9 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
                 <Droplets className="w-5 h-5 text-brand-blue" />
               </div>
-              <span className="text-lg font-bold"><span className="text-slate-900">VISIT</span><span className="text-brand-blue">.</span></span>
+              <span className="text-lg font-bold"><span className="text-slate-900">Wash</span><span className="text-brand-blue"> Go</span></span>
             </div>
             <p className="text-sm text-slate-400 leading-relaxed max-w-xs mb-6">{t("landing.heroSub")}</p>
             <div className="flex gap-3">
@@ -639,7 +639,7 @@ function Footer() {
           ))}
         </div>
         <div className="border-t border-slate-200 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-          <span className="text-sm text-slate-400">© 2025 VISIT Technologies. All rights reserved.</span>
+          <span className="text-sm text-slate-400">© 2025 Wash Go. All rights reserved.</span>
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <span>Built in</span><span>🇺🇿</span><span>Powered by</span><span className="text-brand-blue">Next.js</span>
           </div>

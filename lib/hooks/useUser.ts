@@ -9,6 +9,11 @@ export type UserProfile = {
   phone: string | null;
   email: string;
   avatar_url: string | null;
+  is_active: boolean;
+  loyalty_points: number;
+  loyalty_tier: string;
+  total_washes: number;
+  total_spent: number;
 };
 
 export function useUser() {
@@ -19,16 +24,25 @@ export function useUser() {
     const supabase = createClient();
 
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) { setLoading(false); return; }
 
       const { data } = await supabase
         .from("profiles")
-        .select("id, name, role, phone, avatar_url")
+        .select("id, name, role, phone, avatar_url, is_active, loyalty_points, loyalty_tier, total_washes, total_spent")
         .eq("id", user.id)
         .single();
 
-      setProfile(data ? { ...data, email: user.email ?? "" } : null);
+      setProfile(data ? {
+        ...data,
+        email:          user.email ?? "",
+        is_active:      data.is_active      ?? false,
+        loyalty_points: data.loyalty_points ?? 0,
+        loyalty_tier:   data.loyalty_tier   ?? "Bronze",
+        total_washes:   data.total_washes   ?? 0,
+        total_spent:    data.total_spent    ?? 0,
+      } : null);
       setLoading(false);
     }
 

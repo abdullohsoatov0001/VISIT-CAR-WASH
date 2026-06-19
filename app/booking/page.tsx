@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { MapPin, Car, Clock, CreditCard, Check, ChevronRight, ArrowLeft, Droplets, Zap, Shield, Navigation, Plus } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase/client";
 
 const colorCard: Record<string, string> = {
   blue: "border-brand-blue/30 bg-brand-blue/5",
@@ -66,8 +67,51 @@ export default function BookingPage() {
 
   const handleConfirm = async () => {
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 2000));
-    window.location.href = "/tracking";
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
+
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+
+    const location = savedLocations.find(l => l.id === selectedLocation);
+
+    const orderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
+
+    const { error } = await supabase.from("orders").insert({
+      user_id:       user.id,
+      order_number:  orderNumber,
+      service_type:  service.name,
+      status:        "pending",
+      price:         total,
+      location_name: location?.address ?? "",
+      notes:         selectedAddons.length > 0 ? selectedAddons.join(", ") : null,
+      scheduled_at:  selectedTime === "Now (ASAP)" ? new Date().toISOString() : null,
+    });
+
+    if (error) {
+      setLoading(false);
+      alert("Ошибка: " + error.message);
+      return;
+    }
+
+    if (user.email) {
+      fetch("/api/notify/order-confirmation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: user.email,
+          orderNumber,
+          serviceType: service.name,
+          price: total,
+          locationName: location?.address ?? "",
+        }),
+      }).catch(() => {});
+    }
+
+    window.location.href = "/dashboard/tracking";
   };
 
   const dates = [

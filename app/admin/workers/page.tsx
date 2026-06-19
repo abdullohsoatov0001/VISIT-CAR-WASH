@@ -1,61 +1,134 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
-import { Search, Bell, Star, MapPin, ArrowUpRight } from "lucide-react";
-import { useLanguage } from "@/lib/i18n";
+import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Search, Plus, Star, MapPin, X, User, Mail, Lock, Phone, Eye, EyeOff, AlertCircle, Check } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
-const workers = [
-  { id: "NT-01", name: "Nodir Toshev", phone: "+998 90 111 22 33", zone: "Yunusobod", jobs: 1204, rating: 4.9, earnings: 8200000, status: "online", avatar: "NT", badge: "⭐" },
-  { id: "SK-02", name: "Sardor Karimov", phone: "+998 91 222 33 44", zone: "Chilonzor", jobs: 987, rating: 4.8, earnings: 6900000, status: "online", avatar: "SK", badge: "🏅" },
-  { id: "BM-03", name: "Bobur Mirzayev", phone: "+998 93 333 44 55", zone: "Mirzo Ulugbek", jobs: 743, rating: 4.9, earnings: 5100000, status: "busy", avatar: "BM", badge: "🥉" },
-  { id: "UN-04", name: "Ulugbek Nazarov", phone: "+998 94 444 55 66", zone: "Uchtepa", jobs: 621, rating: 4.7, earnings: 4400000, status: "online", avatar: "UN", badge: "" },
-  { id: "JU-05", name: "Jamshid Umarov", phone: "+998 95 555 66 77", zone: "Yunusobod", jobs: 412, rating: 4.8, earnings: 2900000, status: "offline", avatar: "JU", badge: "" },
-];
-
-const statusColor: Record<string, string> = {
-  online: "bg-emerald-50 text-emerald-600 border-emerald-200",
-  busy: "bg-orange-50 text-orange-600 border-orange-200",
-  offline: "bg-slate-50 text-slate-400 border-slate-200",
+type Worker = {
+  id: string;
+  name: string;
+  phone: string | null;
+  is_active: boolean;
+  created_at: string;
 };
 
+const statusColor: Record<string, string> = {
+  true:  "bg-emerald-50 text-emerald-600 border-emerald-200",
+  false: "bg-slate-50 text-slate-400 border-slate-200",
+};
+
+function getInitials(name: string) {
+  return name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export default function AdminWorkersPage() {
-  const { t } = useLanguage();
-  const [search, setSearch] = useState("");
+  const [workers, setWorkers]     = useState<Worker[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [search, setSearch]       = useState("");
+  const [showModal, setShowModal] = useState(false);
+
+  // Form state
+  const [name, setName]         = useState("");
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [phone, setPhone]       = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [formError, setFormError] = useState("");
+  const [formSuccess, setFormSuccess] = useState(false);
+
+  async function fetchWorkers() {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, name, phone, is_active, created_at")
+      .eq("role", "WORKER")
+      .order("created_at", { ascending: false });
+    setWorkers(data ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchWorkers(); }, []);
 
   const filtered = workers.filter(w =>
-    !search || w.name.toLowerCase().includes(search.toLowerCase())
+    !search || w.name.toLowerCase().includes(search.toLowerCase()) ||
+    (w.phone ?? "").includes(search)
   );
+
+  const onlineCount  = workers.filter(w => w.is_active).length;
+  const offlineCount = workers.filter(w => !w.is_active).length;
+
+  function resetForm() {
+    setName(""); setEmail(""); setPassword(""); setPhone("");
+    setFormError(""); setFormSuccess(false); setShowPass(false);
+  }
+
+  function openModal() { resetForm(); setShowModal(true); }
+  function closeModal() { setShowModal(false); resetForm(); }
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError("");
+
+    if (!name.trim())        { setFormError("Введите имя"); return; }
+    if (!email.trim())       { setFormError("Введите email"); return; }
+    if (password.length < 6) { setFormError("Пароль минимум 6 символов"); return; }
+
+    setSaving(true);
+    const res = await fetch("/api/admin/create-worker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), email: email.trim().toLowerCase(), password, phone: phone.trim() }),
+    });
+
+    const json = await res.json();
+    setSaving(false);
+
+    if (!res.ok) {
+      setFormError(json.error ?? "Ошибка создания аккаунта");
+      return;
+    }
+
+    setFormSuccess(true);
+    await fetchWorkers();
+    setTimeout(() => closeModal(), 1500);
+  }
 
   return (
     <>
+      {/* Header */}
       <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-xl border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
         <div>
-          <div className="text-lg font-bold text-slate-900">{t("admin.workers")}</div>
-          <div className="text-xs text-slate-400">{workers.filter(w => w.status === "online").length} {t("common.online").toLowerCase()} · {workers.length} {t("admin.workers").toLowerCase()}</div>
+          <div className="text-lg font-bold text-slate-900">Мойщики</div>
+          <div className="text-xs text-slate-400">{onlineCount} онлайн · {workers.length} всего</div>
         </div>
         <div className="flex items-center gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder={`${t("common.search")}...`}
+              placeholder="Поиск..."
               className="w-52 h-9 pl-9 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 transition-all" />
           </div>
-          <button className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
-            <Bell className="w-4 h-4" />
-          </button>
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-blue to-brand-purple flex items-center justify-center text-white text-xs font-bold">AD</div>
+          <motion.button onClick={openModal}
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+            className="flex items-center gap-2 h-9 px-4 rounded-xl bg-brand-blue text-white text-sm font-semibold shadow-sm hover:bg-brand-blue/90 transition-all">
+            <Plus className="w-4 h-4" /> Добавить мойщика
+          </motion.button>
         </div>
       </div>
 
       <div className="p-6 space-y-4">
         {/* Summary */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           {[
-            { label: t("common.online"), value: workers.filter(w => w.status === "online").length, icon: "🟢" },
-            { label: t("worker.activeOrder"), value: workers.filter(w => w.status === "busy").length, icon: "⚡" },
-            { label: t("common.offline"), value: workers.filter(w => w.status === "offline").length, icon: "🔴" },
-            { label: t("admin.avgOrderValue"), value: "4.85 ★", icon: "⭐" },
+            { label: "Всего мойщиков", value: workers.length, icon: "👥" },
+            { label: "Онлайн",         value: onlineCount,    icon: "🟢" },
+            { label: "Офлайн",         value: offlineCount,   icon: "🔴" },
           ].map((s, i) => (
             <motion.div key={s.label} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}
               className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
@@ -66,49 +139,159 @@ export default function AdminWorkersPage() {
           ))}
         </div>
 
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map((w, i) => (
-            <motion.div key={w.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}
-              className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-brand-blue/20 hover:shadow-md transition-all shadow-sm">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-blue to-brand-purple flex items-center justify-center text-white text-sm font-bold">
-                    {w.avatar}
+        {/* Workers grid */}
+        {loading ? (
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {[1,2,3].map(i => <div key={i} className="bg-white border border-slate-200 rounded-2xl p-5 h-36 animate-pulse" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm">
+            <div className="text-4xl mb-3">👷</div>
+            <div className="font-bold text-slate-900 mb-1">
+              {search ? "Не найдено" : "Мойщиков нет"}
+            </div>
+            <div className="text-sm text-slate-400 mb-5">
+              {search ? "Попробуйте другой запрос" : "Добавьте первого мойщика"}
+            </div>
+            {!search && (
+              <motion.button onClick={openModal} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                className="px-5 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold shadow-sm">
+                Добавить мойщика
+              </motion.button>
+            )}
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filtered.map((w, i) => (
+              <motion.div key={w.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
+                className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-brand-blue/20 hover:shadow-md transition-all shadow-sm">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-blue to-brand-purple flex items-center justify-center text-white text-sm font-bold">
+                      {getInitials(w.name)}
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900 text-sm">{w.name}</div>
+                      <div className="text-xs text-slate-400">{w.phone ?? "—"}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="font-bold text-slate-900 text-sm">{w.name} {w.badge}</div>
-                    <div className="text-xs text-slate-400">{w.phone}</div>
-                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg border ${statusColor[String(w.is_active)]}`}>
+                    {w.is_active ? "Онлайн" : "Офлайн"}
+                  </span>
                 </div>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg border ${statusColor[w.status]}`}>
-                  {t(`common.${w.status}`)}
-                </span>
-              </div>
 
-              <div className="flex items-center gap-1 text-xs text-slate-400 mb-3">
-                <MapPin className="w-3 h-3" />{w.zone}
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <div className="text-base font-black text-slate-900">{w.jobs}</div>
-                  <div className="text-[10px] text-slate-400">{t("admin.jobs")}</div>
+                <div className="flex items-center gap-1 text-xs text-slate-400">
+                  <MapPin className="w-3 h-3" /> Добавлен {formatDate(w.created_at)}
                 </div>
-                <div>
-                  <div className="text-base font-black text-slate-900 flex items-center justify-center gap-0.5">
-                    <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />{w.rating}
-                  </div>
-                  <div className="text-[10px] text-slate-400">{t("worker.rating")}</div>
-                </div>
-                <div>
-                  <div className="text-base font-black text-slate-900">{(w.earnings / 1000000).toFixed(1)}M</div>
-                  <div className="text-[10px] text-slate-400">{t("admin.amountCol")}</div>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Modal */}
+      <AnimatePresence>
+        {showModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">Новый мойщик</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Создать аккаунт для мойщика</p>
+                </div>
+                <button onClick={closeModal} className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-all">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {formError && (
+                <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-xl mb-4">
+                  <AlertCircle className="w-4 h-4 shrink-0" />{formError}
+                </motion.div>
+              )}
+
+              {formSuccess && (
+                <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-600 text-sm px-4 py-3 rounded-xl mb-4">
+                  <Check className="w-4 h-4 shrink-0" /> Аккаунт создан!
+                </motion.div>
+              )}
+
+              <form onSubmit={handleCreate} className="space-y-3">
+                {/* Name */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Имя *</label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} autoFocus
+                      placeholder="Имя мойщика"
+                      className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all" />
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Email *</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                      placeholder="worker@example.com"
+                      className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all" />
+                  </div>
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Телефон <span className="text-slate-300 normal-case font-normal">(необязательно)</span>
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                      placeholder="+998901234567"
+                      className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all" />
+                  </div>
+                </div>
+
+                {/* Password */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Пароль *</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type={showPass ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                      placeholder="Минимум 6 символов"
+                      className="w-full h-11 pl-10 pr-11 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all" />
+                    <button type="button" onClick={() => setShowPass(!showPass)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={closeModal}
+                    className="flex-1 h-11 rounded-xl bg-slate-100 text-slate-600 font-semibold text-sm hover:bg-slate-200 transition-all">
+                    Отмена
+                  </button>
+                  <motion.button type="submit" disabled={saving || formSuccess}
+                    whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                    className="flex-1 h-11 rounded-xl bg-brand-blue text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60 shadow-sm">
+                    {saving
+                      ? <><svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Создаём…</>
+                      : <><Plus className="w-4 h-4" /> Создать аккаунт</>
+                    }
+                  </motion.button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

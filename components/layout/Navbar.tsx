@@ -69,8 +69,8 @@ export default function Navbar() {
                 <Droplets className="w-5 h-5 text-brand-blue" />
               </motion.div>
               <span className="text-lg font-bold tracking-tight">
-                <span className="text-slate-900">VISIT</span>
-                <span className="text-brand-blue">.</span>
+                <span className="text-slate-900">Wash</span>
+                <span className="text-brand-blue"> Go</span>
               </span>
             </Link>
 
