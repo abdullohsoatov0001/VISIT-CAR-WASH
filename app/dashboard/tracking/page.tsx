@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Phone, Check, Package, RefreshCw, X, AlertTriangle } from "lucide-react";
+import { MapPin, Phone, Check, Package, RefreshCw, X, AlertTriangle, Navigation } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { formatEta } from "@/lib/geo";
 import Link from "next/link";
 
+const NavigationView = dynamic(() => import("@/components/NavigationView"), { ssr: false });
+
 const CANCELLABLE_STATUSES = ["pending", "accepted", "en_route"];
+const LIVE_MAP_STATUSES = ["accepted", "en_route", "in_progress"];
 
 type ActiveOrder = {
   id: string;
@@ -16,6 +21,10 @@ type ActiveOrder = {
   price: number;
   location_name: string;
   worker_name: string | null;
+  worker_lat: number | null;
+  worker_lng: number | null;
+  client_lat: number | null;
+  client_lng: number | null;
   created_at: string;
 };
 
@@ -34,25 +43,28 @@ export default function DashboardTrackingPage() {
   const [loading, setLoading] = useState(true);
   const [showCancel, setShowCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [showNav, setShowNav] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
 
     async function load() {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
-      if (!user) { setLoading(false); return; }
+      if (!user || cancelled) { setLoading(false); return; }
 
       const { data } = await supabase
         .from("orders")
-        .select("id, order_number, service_type, status, price, location_name, worker_name, created_at")
+        .select("id, order_number, service_type, status, price, location_name, worker_name, worker_lat, worker_lng, client_lat, client_lng, created_at")
         .eq("user_id", user.id)
         .not("status", "in", '("completed","cancelled")')
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
+      if (cancelled) return;
       setOrder(data ?? null);
       setLoading(false);
 
@@ -79,6 +91,7 @@ export default function DashboardTrackingPage() {
     load();
 
     return () => {
+      cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
   }, []);
@@ -177,6 +190,25 @@ export default function DashboardTrackingPage() {
         </motion.div>
       )}
 
+      {/* Live GPS — открывает полноэкранную навигацию */}
+      {LIVE_MAP_STATUSES.includes(order.status) && order.worker_lat && order.worker_lng && (
+        <motion.button initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}
+          onClick={() => setShowNav(true)}
+          className="w-full bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex items-center justify-between hover:border-brand-blue/30 transition-all">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <Navigation className="w-4 h-4 text-brand-blue" />
+            {order.client_lat && order.client_lng
+              ? (() => {
+                  const eta = formatEta(order.worker_lat!, order.worker_lng!, order.client_lat!, order.client_lng!);
+                  return `${eta.km} · ~${eta.mins} мин до вас`;
+                })()
+              : "Живая GPS-локация мойщика"}
+          </div>
+          <span className="text-xs text-brand-blue font-semibold">Открыть карту →</span>
+        </motion.button>
+      )}
+
       {/* Status steps */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
         className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
@@ -261,6 +293,16 @@ export default function DashboardTrackingPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {showNav && order.worker_lat && order.worker_lng && (
+        <NavigationView
+          worker={{ lat: order.worker_lat, lng: order.worker_lng }}
+          destination={order.client_lat && order.client_lng ? { lat: order.client_lat, lng: order.client_lng } : undefined}
+          title={order.worker_name ? `${order.worker_name} едет к вам` : "Ваш мойщик"}
+          subtitle={`Заказ ${order.order_number}`}
+          onClose={() => setShowNav(false)}
+        />
+      )}
 
     </div>
   );

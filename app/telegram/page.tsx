@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronRight, ArrowLeft, Droplets } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import { getClientCoords } from "@/lib/geo";
 
 const servicePrices: Record<string, number> = { express: 49000, premium: 99000, detail: 199000, eco: 59000 };
 
@@ -57,6 +58,7 @@ export default function TelegramMiniApp() {
 
     const newOrderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
     const loc = locations.find(l => l.id === location);
+    const coords = await getClientCoords();
 
     const { error: err } = await supabase.from("orders").insert({
       user_id: user.id,
@@ -66,6 +68,8 @@ export default function TelegramMiniApp() {
       price: servicePrices[service.id],
       location_name: loc?.address ?? "",
       scheduled_at: time === "Now (ASAP)" ? new Date().toISOString() : null,
+      client_lat: coords?.lat ?? null,
+      client_lng: coords?.lng ?? null,
     });
 
     setLoading(false);

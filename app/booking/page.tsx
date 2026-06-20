@@ -6,6 +6,7 @@ import Link from "next/link";
 import { MapPin, Car, Clock, CreditCard, Check, ChevronRight, ArrowLeft, Droplets, Zap, Shield, Navigation, Plus } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import { getClientCoords } from "@/lib/geo";
 
 const colorCard: Record<string, string> = {
   blue: "border-brand-blue/30 bg-brand-blue/5",
@@ -79,6 +80,7 @@ export default function BookingPage() {
     const location = savedLocations.find(l => l.id === selectedLocation);
 
     const orderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
+    const coords = await getClientCoords();
 
     const { error } = await supabase.from("orders").insert({
       user_id:       user.id,
@@ -89,6 +91,8 @@ export default function BookingPage() {
       location_name: location?.address ?? "",
       notes:         selectedAddons.length > 0 ? selectedAddons.join(", ") : null,
       scheduled_at:  selectedTime === "Now (ASAP)" ? new Date().toISOString() : null,
+      client_lat:    coords?.lat ?? null,
+      client_lng:    coords?.lng ?? null,
     });
 
     if (error) {

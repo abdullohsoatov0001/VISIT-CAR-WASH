@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { MapPin, Bell, Car, Navigation, Phone, Check, X, Award, Power } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserContext } from "@/lib/context/UserContext";
 import { getInitials } from "@/lib/hooks/useUser";
+import { formatEta, getClientCoords } from "@/lib/geo";
+
+const NavigationView = dynamic(() => import("@/components/NavigationView"), { ssr: false });
 
 type Order = {
   id: string;
@@ -17,6 +21,10 @@ type Order = {
   location_name: string;
   user_id: string;
   worker_id: string | null;
+  worker_lat: number | null;
+  worker_lng: number | null;
+  client_lat: number | null;
+  client_lng: number | null;
   created_at: string;
 };
 
@@ -28,6 +36,7 @@ export default function WorkerDashboard() {
   const [pendingOrders, setPending]     = useState<Order[]>([]);
   const [activeOrder, setActiveOrder]   = useState<Order | null>(null);
   const [acceptingId, setAcceptingId]   = useState<string | null>(null);
+  const [showNav, setShowNav]           = useState(false);
 
   const firstName = profile?.name?.split(" ")[0] ?? "Мойщик";
   const initials  = profile ? getInitials(profile.name) : "…";
@@ -104,6 +113,37 @@ export default function WorkerDashboard() {
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id]);
 
+  // Делимся живой геолокацией, пока заказ активен
+  useEffect(() => {
+    if (!activeOrder || !["accepted", "en_route", "in_progress"].includes(activeOrder.status)) return;
+    if (!("geolocation" in navigator)) return;
+
+    const supabase = createClient();
+    let lastSent = 0;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const now = Date.now();
+        if (now - lastSent < 8000) return; // не чаще раза в 8 секунд
+        lastSent = now;
+
+        supabase
+          .from("orders")
+          .update({
+            worker_lat: pos.coords.latitude,
+            worker_lng: pos.coords.longitude,
+            worker_location_updated_at: new Date().toISOString(),
+          })
+          .eq("id", activeOrder.id)
+          .then();
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [activeOrder?.id, activeOrder?.status]);
+
   const toggleOnline = async () => {
     if (!profile?.id || toggling) return;
     setToggling(true);
@@ -149,12 +189,27 @@ export default function WorkerDashboard() {
   const startNavigation = async () => {
     if (!activeOrder) return;
     const supabase = createClient();
+
+    // Сразу берём GPS-фикс, чтобы карта открылась без задержки
+    // (watchPosition даст следующее обновление лишь через несколько секунд)
+    const coords = await getClientCoords();
+    if (!coords) {
+      alert("Не удалось получить геолокацию. Разрешите доступ к местоположению в браузере.");
+    }
+
+    const updates: Record<string, unknown> = { status: "en_route" };
+    if (coords) {
+      updates.worker_lat = coords.lat;
+      updates.worker_lng = coords.lng;
+      updates.worker_location_updated_at = new Date().toISOString();
+    }
+
     // Статус → en_route (клиент видит "Мойщик в пути")
     await supabase
       .from("orders")
-      .update({ status: "en_route" })
+      .update(updates)
       .eq("id", activeOrder.id);
-    setActiveOrder(prev => prev ? { ...prev, status: "en_route" } : prev);
+    setActiveOrder(prev => prev ? { ...prev, ...updates } : prev);
 
     await supabase.from("notifications").insert({
       user_id: activeOrder.user_id,
@@ -164,9 +219,7 @@ export default function WorkerDashboard() {
       urgent: true,
     });
 
-    // Открыть Google Maps с адресом клиента
-    const addr = encodeURIComponent(activeOrder.location_name || "Tashkent");
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${addr}`, "_blank");
+    setShowNav(true);
   };
 
   const startWash = async () => {
@@ -270,6 +323,23 @@ export default function WorkerDashboard() {
                 {activeOrder.status === "en_route"    && <span className="text-xs bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-lg font-semibold">В пути к клиенту</span>}
                 {activeOrder.status === "in_progress" && <span className="text-xs bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 rounded-lg font-semibold">Мойка идёт</span>}
               </div>
+
+              {/* Превью навигации — открывает полноэкранную карту с маршрутом */}
+              {activeOrder.worker_lat && activeOrder.worker_lng && activeOrder.status !== "accepted" && (
+                <button onClick={() => setShowNav(true)}
+                  className="w-full mb-4 flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-white border border-emerald-200 hover:border-emerald-300 transition-all">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600">
+                    <Navigation className="w-4 h-4" />
+                    {activeOrder.client_lat && activeOrder.client_lng
+                      ? (() => {
+                          const eta = formatEta(activeOrder.worker_lat!, activeOrder.worker_lng!, activeOrder.client_lat!, activeOrder.client_lng!);
+                          return `До клиента: ${eta.km} · ~${eta.mins} мин`;
+                        })()
+                      : "Живая геолокация активна"}
+                  </div>
+                  <span className="text-xs text-brand-blue font-semibold">Открыть карту →</span>
+                </button>
+              )}
 
               <div className="flex gap-2">
                 {/* Принят → кнопка навигации (меняет статус на en_route) */}
@@ -402,6 +472,16 @@ export default function WorkerDashboard() {
         </div>
 
       </div>
+
+      {showNav && activeOrder && activeOrder.worker_lat && activeOrder.worker_lng && (
+        <NavigationView
+          worker={{ lat: activeOrder.worker_lat, lng: activeOrder.worker_lng }}
+          destination={activeOrder.client_lat && activeOrder.client_lng ? { lat: activeOrder.client_lat, lng: activeOrder.client_lng } : undefined}
+          title={`Заказ ${activeOrder.order_number}`}
+          subtitle={activeOrder.location_name || "Адрес не указан"}
+          onClose={() => setShowNav(false)}
+        />
+      )}
     </>
   );
 }
