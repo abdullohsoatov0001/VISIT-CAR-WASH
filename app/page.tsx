@@ -78,7 +78,7 @@ function HeroSection() {
         </motion.div>
 
         <motion.h1 initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1, ease: [0.23, 1, 0.32, 1] }}
-          className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tight mb-6 leading-[0.9]">
+          className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tight mb-6 leading-[1.05] sm:leading-[0.9]">
           <span className="block text-slate-900">{t("landing.heroTitle1")},</span>
           <span className="block gradient-text">{t("landing.heroTitleHighlight")}</span>
         </motion.h1>
@@ -257,7 +257,7 @@ function FeaturesSection() {
   ];
 
   return (
-    <section id="features" className="py-32 relative bg-[#F8FAFF]">
+    <section id="features" className="py-32 relative overflow-hidden bg-[#F8FAFF]">
       <GlowOrb x="10%" y="50%" color="#0EA5E9" size={500} />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
@@ -572,7 +572,7 @@ function CTASection() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
         <motion.div initial={{ opacity: 0, scale: 0.95 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }}
           transition={{ duration: 0.8, ease: [0.23, 1, 0.32, 1] }}
-          className="bg-gradient-to-br from-brand-blue/8 to-brand-purple/5 border border-brand-blue/20 rounded-3xl p-12 md:p-16 shadow-xl">
+          className="bg-gradient-to-br from-brand-blue/8 to-brand-purple/5 border border-brand-blue/20 rounded-3xl p-6 sm:p-12 md:p-16 shadow-xl">
           <motion.div animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
             className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
             <Droplets className="w-8 h-8 text-brand-blue" />

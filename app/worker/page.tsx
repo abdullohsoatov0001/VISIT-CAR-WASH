@@ -23,6 +23,8 @@ type Order = {
   worker_id: string | null;
   worker_lat: number | null;
   worker_lng: number | null;
+  worker_speed: number | null;
+  worker_heading: number | null;
   client_lat: number | null;
   client_lng: number | null;
   created_at: string;
@@ -124,7 +126,7 @@ export default function WorkerDashboard() {
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const now = Date.now();
-        if (now - lastSent < 8000) return; // не чаще раза в 8 секунд
+        if (now - lastSent < 1500) return; // не чаще ~раза в 1.5 секунды
         lastSent = now;
 
         supabase
@@ -132,13 +134,15 @@ export default function WorkerDashboard() {
           .update({
             worker_lat: pos.coords.latitude,
             worker_lng: pos.coords.longitude,
+            worker_speed: pos.coords.speed != null ? pos.coords.speed * 3.6 : null,
+            worker_heading: pos.coords.heading,
             worker_location_updated_at: new Date().toISOString(),
           })
           .eq("id", activeOrder.id)
           .then();
       },
       () => {},
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
@@ -479,6 +483,7 @@ export default function WorkerDashboard() {
           destination={activeOrder.client_lat && activeOrder.client_lng ? { lat: activeOrder.client_lat, lng: activeOrder.client_lng } : undefined}
           title={`Заказ ${activeOrder.order_number}`}
           subtitle={activeOrder.location_name || "Адрес не указан"}
+          trackSelf
           onClose={() => setShowNav(false)}
         />
       )}

@@ -23,6 +23,8 @@ type ActiveOrder = {
   worker_name: string | null;
   worker_lat: number | null;
   worker_lng: number | null;
+  worker_speed: number | null;
+  worker_heading: number | null;
   client_lat: number | null;
   client_lng: number | null;
   created_at: string;
@@ -57,7 +59,7 @@ export default function DashboardTrackingPage() {
 
       const { data } = await supabase
         .from("orders")
-        .select("id, order_number, service_type, status, price, location_name, worker_name, worker_lat, worker_lng, client_lat, client_lng, created_at")
+        .select("id, order_number, service_type, status, price, location_name, worker_name, worker_lat, worker_lng, worker_speed, worker_heading, client_lat, client_lng, created_at")
         .eq("user_id", user.id)
         .not("status", "in", '("completed","cancelled")')
         .order("created_at", { ascending: false })
@@ -300,6 +302,8 @@ export default function DashboardTrackingPage() {
           destination={order.client_lat && order.client_lng ? { lat: order.client_lat, lng: order.client_lng } : undefined}
           title={order.worker_name ? `${order.worker_name} едет к вам` : "Ваш мойщик"}
           subtitle={`Заказ ${order.order_number}`}
+          speed={order.worker_speed}
+          heading={order.worker_heading}
           onClose={() => setShowNav(false)}
         />
       )}

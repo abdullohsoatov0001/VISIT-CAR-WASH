@@ -271,7 +271,7 @@ export default function BookingPage() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-6">
                 {timeSlots.map((ts) => (
                   <button key={ts} onClick={() => setSelectedTime(ts)}
                     className={`py-3 rounded-xl text-sm font-medium border transition-all ${selectedTime === ts ? "bg-brand-blue/10 border-brand-blue/30 text-brand-blue" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300 shadow-sm"}`}>

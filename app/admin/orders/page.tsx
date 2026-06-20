@@ -125,7 +125,7 @@ export default function AdminOrdersPage() {
 
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[860px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   {[t("admin.orderId"), t("admin.clientCol"), t("admin.workerCol"), t("admin.serviceCol"), t("admin.locationCol"), t("admin.amountCol"), t("admin.statusCol"), t("admin.timeCol"), ""].map(h => (

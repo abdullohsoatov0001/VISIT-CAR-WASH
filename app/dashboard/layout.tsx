@@ -118,7 +118,7 @@ function DashboardContent({ children }: { children: ReactNode }) {
             <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setMobileMenu(false)} />
             <motion.div initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="absolute left-0 top-0 bottom-0 w-72 z-10">
+              className="absolute left-0 top-0 bottom-0 w-[min(80vw,288px)] z-10">
               <Sidebar mobile onClose={() => setMobileMenu(false)} />
             </motion.div>
           </motion.div>

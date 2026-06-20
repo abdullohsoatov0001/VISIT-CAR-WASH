@@ -78,7 +78,7 @@ export default function AdminUsersPage() {
 
       <div className="p-6 space-y-4">
         {/* Summary */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           {[
             { label: t("admin.users"), value: String(users.length), icon: "👥" },
             { label: "Gold+", value: String(goldPlus), icon: "⭐" },
@@ -96,7 +96,7 @@ export default function AdminUsersPage() {
 
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[680px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   {["ID", t("common.profile"), t("admin.orders"), t("admin.amountCol"), "Level", t("admin.statusCol"), ""].map(h => (
