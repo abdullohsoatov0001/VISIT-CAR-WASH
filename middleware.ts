@@ -2,6 +2,17 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const isProtected = ["/dashboard", "/booking", "/tracking", "/history", "/payment", "/worker", "/admin"].some(p => pathname.startsWith(p));
+  const isAuth = ["/login", "/register", "/verify"].some(p => pathname.startsWith(p));
+
+  // Публичные страницы (лендинг, pricing, telegram и т.д.) не нуждаются в
+  // проверке авторизации — пропускаем без похода к Supabase, иначе каждый
+  // переход по сайту тратил бы лишний сетевой round-trip впустую
+  if (!isProtected && !isAuth) {
+    return NextResponse.next();
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -22,10 +33,6 @@ export async function middleware(request: NextRequest) {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
-  const isProtected = ["/dashboard", "/booking", "/tracking", "/history", "/payment", "/worker", "/admin"].some(p => pathname.startsWith(p));
-  const isAuth = ["/login", "/register", "/verify"].some(p => pathname.startsWith(p));
 
   // Not logged in → to login
   if (isProtected && !user) {

@@ -11,6 +11,13 @@ import { getInitials } from "@/lib/hooks/useUser";
 import { formatEta, getClientCoords } from "@/lib/geo";
 
 const NavigationView = dynamic(() => import("@/components/NavigationView"), { ssr: false });
+const WashPhotoModal = dynamic(() => import("@/components/WashPhotoModal"), { ssr: false });
+
+function formatPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length !== 12) return phone;
+  return `+${digits.slice(0, 3)} ${digits.slice(3, 5)} ${digits.slice(5, 8)} ${digits.slice(8, 10)} ${digits.slice(10, 12)}`;
+}
 
 type Order = {
   id: string;
@@ -27,6 +34,9 @@ type Order = {
   worker_heading: number | null;
   client_lat: number | null;
   client_lng: number | null;
+  client_phone: string | null;
+  before_photos: string[] | null;
+  after_photos: string[] | null;
   created_at: string;
 };
 
@@ -39,6 +49,9 @@ export default function WorkerDashboard() {
   const [activeOrder, setActiveOrder]   = useState<Order | null>(null);
   const [acceptingId, setAcceptingId]   = useState<string | null>(null);
   const [showNav, setShowNav]           = useState(false);
+  const [photoStep, setPhotoStep]       = useState<"before" | "after" | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelling, setCancelling]     = useState(false);
 
   const firstName = profile?.name?.split(" ")[0] ?? "Мойщик";
   const initials  = profile ? getInitials(profile.name) : "…";
@@ -52,21 +65,22 @@ export default function WorkerDashboard() {
     const supabase = createClient();
 
     async function load() {
-      // Активный заказ этого мойщика
-      const { data: active } = await supabase
-        .from("orders")
-        .select("*")
-        .eq("worker_id", workerId)
-        .in("status", ["accepted", "en_route", "in_progress"])
-        .maybeSingle();
+      // Активный заказ и ожидающие заказы независимы друг от друга — грузим параллельно
+      const [{ data: active }, { data: pending }] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("*")
+          .eq("worker_id", workerId)
+          .in("status", ["accepted", "en_route", "in_progress"])
+          .maybeSingle(),
+        supabase
+          .from("orders")
+          .select("*")
+          .eq("status", "pending")
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ]);
       setActiveOrder(active ?? null);
-
-      // Все ожидающие заказы
-      const { data: pending } = await supabase
-        .from("orders")
-        .select("*")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false });
       setPending(pending ?? []);
     }
 
@@ -165,7 +179,7 @@ export default function WorkerDashboard() {
 
     const { data, error } = await supabase
       .from("orders")
-      .update({ status: "accepted", worker_id: profile.id, worker_name: profile.name })
+      .update({ status: "accepted", worker_id: profile.id, worker_name: profile.name, worker_phone: profile.phone ?? null })
       .eq("id", order.id)
       .eq("status", "pending")
       .select()
@@ -226,31 +240,57 @@ export default function WorkerDashboard() {
     setShowNav(true);
   };
 
-  const startWash = async () => {
+  const confirmBeforePhotos = async (urls: string[]) => {
     if (!activeOrder) return;
     const supabase = createClient();
     await supabase
       .from("orders")
-      .update({ status: "in_progress" })
+      .update({ status: "in_progress", before_photos: urls })
       .eq("id", activeOrder.id);
-    setActiveOrder(prev => prev ? { ...prev, status: "in_progress" } : prev);
+    setActiveOrder(prev => prev ? { ...prev, status: "in_progress", before_photos: urls } : prev);
+    setPhotoStep(null);
   };
 
-  const completeOrder = async () => {
+  const confirmAfterPhotos = async (urls: string[]) => {
     if (!activeOrder) return;
     const supabase = createClient();
     await supabase
       .from("orders")
-      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .update({ status: "completed", completed_at: new Date().toISOString(), after_photos: urls })
       .eq("id", activeOrder.id);
 
     await supabase.from("notifications").insert({
       user_id: activeOrder.user_id,
-      type: "order",
+      type: "rating",
+      order_id: activeOrder.id,
       title: "Мойка завершена ✓",
-      body: `Заказ ${activeOrder.order_number} выполнен. Оцените мойщика в истории заказов.`,
+      body: `Заказ ${activeOrder.order_number} выполнен. Сравните фото до/после и оцените мойщика.`,
     });
 
+    setPhotoStep(null);
+    setActiveOrder(null);
+  };
+
+  // Мойщик не может продолжить (машина сломалась и т.п.) — возвращаем заказ
+  // в поиск нового мойщика вместо полной отмены, чтобы клиент не остался без мойки
+  const cancelByWorker = async () => {
+    if (!activeOrder || !profile) return;
+    setCancelling(true);
+    const supabase = createClient();
+    await supabase
+      .from("orders")
+      .update({ status: "pending", worker_id: null, worker_name: null, worker_phone: null })
+      .eq("id", activeOrder.id);
+
+    await supabase.from("notifications").insert({
+      user_id: activeOrder.user_id,
+      type: "system",
+      title: "Ищем нового мойщика",
+      body: `${profile.name} не может выполнить заказ ${activeOrder.order_number}. Ищем для вас другого мойщика.`,
+    });
+
+    setCancelling(false);
+    setShowCancelConfirm(false);
     setActiveOrder(null);
   };
 
@@ -299,40 +339,74 @@ export default function WorkerDashboard() {
 
         {/* Активный заказ */}
         <AnimatePresence>
-          {activeOrder && (
+          {activeOrder && (() => {
+            const steps = [
+              { key: "accepted",    label: "Принят" },
+              { key: "en_route",    label: "В пути" },
+              { key: "in_progress", label: "Мойка" },
+            ];
+            const stepIndex = steps.findIndex(s => s.key === activeOrder.status);
+            return (
             <motion.div
               initial={{ opacity: 0, scale: 0.96, y: -10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96 }}
-              className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
+              className="relative bg-white border-2 border-emerald-200 rounded-3xl p-5 shadow-lg shadow-emerald-100 overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-400 to-emerald-500" />
+
+              {/* Заголовок */}
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ duration: 1.5, repeat: Infinity }}
                     className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Активный заказ</span>
+                  <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Активный заказ</span>
                 </div>
-                <span className="text-xs bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-lg font-semibold">
+                <span className="text-xs bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-lg font-bold">
                   {activeOrder.order_number}
                 </span>
               </div>
-              <div className="text-slate-900 font-bold mb-0.5">{activeOrder.service_type}</div>
-              <div className="text-sm text-slate-500 mb-1 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-                {activeOrder.location_name || "Адрес не указан"}
+
+              {/* Услуга + заработок */}
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0">
+                  <div className="text-lg font-black text-slate-900 leading-tight">{activeOrder.service_type}</div>
+                  <div className="text-sm text-slate-500 mt-1 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                    <span className="truncate">{activeOrder.location_name || "Адрес не указан"}</span>
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="text-xl font-black text-emerald-600">{(activeOrder.price / 1000).toFixed(0)}K</div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">so&apos;m</div>
+                </div>
               </div>
 
-              {/* Статус-бейдж */}
-              <div className="mb-4">
-                {activeOrder.status === "accepted"    && <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded-lg font-semibold">Принят — выезжайте</span>}
-                {activeOrder.status === "en_route"    && <span className="text-xs bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-lg font-semibold">В пути к клиенту</span>}
-                {activeOrder.status === "in_progress" && <span className="text-xs bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 rounded-lg font-semibold">Мойка идёт</span>}
+              {/* Прогресс по шагам — всегда видно, на каком этапе заказ */}
+              <div className="flex items-center mb-4">
+                {steps.map((s, i) => (
+                  <div key={s.key} className="flex items-center flex-1 last:flex-initial">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
+                        i < stepIndex ? "bg-emerald-500 border-emerald-500 text-white" :
+                        i === stepIndex ? "bg-emerald-500 border-emerald-500 text-white ring-4 ring-emerald-100" :
+                        "bg-white border-slate-200 text-slate-300"
+                      }`}>
+                        {i < stepIndex ? <Check className="w-3.5 h-3.5" /> : i + 1}
+                      </div>
+                      <span className={`text-[10px] font-semibold whitespace-nowrap ${i <= stepIndex ? "text-emerald-600" : "text-slate-300"}`}>{s.label}</span>
+                    </div>
+                    {i < steps.length - 1 && (
+                      <div className={`flex-1 h-0.5 mx-1 -mt-4 rounded-full ${i < stepIndex ? "bg-emerald-400" : "bg-slate-200"}`} />
+                    )}
+                  </div>
+                ))}
               </div>
 
               {/* Превью навигации — открывает полноэкранную карту с маршрутом */}
               {activeOrder.worker_lat && activeOrder.worker_lng && activeOrder.status !== "accepted" && (
                 <button onClick={() => setShowNav(true)}
-                  className="w-full mb-4 flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-white border border-emerald-200 hover:border-emerald-300 transition-all">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600">
+                  className="w-full mb-3 flex items-center justify-between gap-2 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200 hover:border-emerald-300 transition-all">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
                     <Navigation className="w-4 h-4" />
                     {activeOrder.client_lat && activeOrder.client_lng
                       ? (() => {
@@ -341,39 +415,84 @@ export default function WorkerDashboard() {
                         })()
                       : "Живая геолокация активна"}
                   </div>
-                  <span className="text-xs text-brand-blue font-semibold">Открыть карту →</span>
+                  <span className="text-xs text-brand-blue font-bold">Карта →</span>
                 </button>
               )}
 
-              <div className="flex gap-2">
+              {/* Действия */}
+              <div className="space-y-2.5">
                 {/* Принят → кнопка навигации (меняет статус на en_route) */}
                 {activeOrder.status === "accepted" && (
                   <button onClick={startNavigation}
-                    className="flex-1 h-10 rounded-xl bg-emerald-500 text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-emerald-600 transition-all shadow-sm">
-                    <Navigation className="w-4 h-4" /> Выехать (навигация)
+                    className="w-full h-14 rounded-2xl bg-emerald-500 text-white text-base font-bold flex items-center justify-center gap-2 hover:bg-emerald-600 active:scale-[0.98] transition-all shadow-md shadow-emerald-200">
+                    <Navigation className="w-5 h-5" /> Выехать
                   </button>
                 )}
 
-                {/* В пути → начать мойку */}
+                {/* В пути → начать мойку (через фото "до") */}
                 {activeOrder.status === "en_route" && (
-                  <button onClick={startWash}
-                    className="flex-1 h-10 rounded-xl bg-brand-blue text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-brand-blue/90 transition-all shadow-sm">
-                    <Check className="w-4 h-4" /> Начать мойку
+                  <button onClick={() => setPhotoStep("before")}
+                    className="w-full h-14 rounded-2xl bg-brand-blue text-white text-base font-bold flex items-center justify-center gap-2 hover:bg-brand-blue/90 active:scale-[0.98] transition-all shadow-md shadow-brand-blue/20">
+                    <Check className="w-5 h-5" /> Начать мойку
                   </button>
                 )}
 
-                {/* Мойка идёт → завершить */}
+                {/* Мойка идёт → завершить (через фото "после") */}
                 {activeOrder.status === "in_progress" && (
-                  <button onClick={completeOrder}
-                    className="flex-1 h-10 rounded-xl bg-brand-blue text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-brand-blue/90 transition-all shadow-sm">
-                    <Check className="w-4 h-4" /> Мойка завершена
+                  <button onClick={() => setPhotoStep("after")}
+                    className="w-full h-14 rounded-2xl bg-brand-blue text-white text-base font-bold flex items-center justify-center gap-2 hover:bg-brand-blue/90 active:scale-[0.98] transition-all shadow-md shadow-brand-blue/20">
+                    <Check className="w-5 h-5" /> Завершить мойку
                   </button>
                 )}
 
-                <button className="h-10 w-10 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition-all flex-shrink-0">
-                  <Phone className="w-4 h-4" />
-                </button>
+                {activeOrder.client_phone ? (
+                  <a href={`tel:${activeOrder.client_phone}`}
+                    className="w-full h-12 rounded-2xl bg-white border-2 border-slate-200 text-slate-700 hover:border-emerald-300 hover:text-emerald-600 active:scale-[0.98] flex items-center justify-center gap-2 font-bold text-sm transition-all">
+                    <Phone className="w-4 h-4" /> {formatPhone(activeOrder.client_phone)}
+                  </a>
+                ) : (
+                  <div className="w-full h-12 rounded-2xl bg-slate-50 border-2 border-slate-100 text-slate-300 flex items-center justify-center gap-2 font-semibold text-sm">
+                    <Phone className="w-4 h-4" /> Клиент не указал телефон
+                  </div>
+                )}
+
+                {(activeOrder.status === "accepted" || activeOrder.status === "en_route") && (
+                  <button onClick={() => setShowCancelConfirm(true)}
+                    className="w-full text-center text-xs text-red-400 hover:text-red-500 font-semibold transition-colors pt-1">
+                    Не могу выполнить заказ
+                  </button>
+                )}
               </div>
+            </motion.div>
+            );
+          })()}
+        </AnimatePresence>
+
+        {/* Подтверждение отказа от заказа */}
+        <AnimatePresence>
+          {showCancelConfirm && activeOrder && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
+              onClick={() => setShowCancelConfirm(false)}>
+              <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl text-center">
+                <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center mx-auto mb-4">
+                  <X className="w-6 h-6 text-red-500" />
+                </div>
+                <h3 className="font-bold text-slate-900 mb-1">Отказаться от заказа?</h3>
+                <p className="text-sm text-slate-400 mb-5">Заказ {activeOrder.order_number} вернётся в поиск — его сможет принять другой мойщик. Клиент получит уведомление.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowCancelConfirm(false)} disabled={cancelling}
+                    className="flex-1 h-11 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold hover:bg-slate-200 transition-all">
+                    Назад
+                  </button>
+                  <button onClick={cancelByWorker} disabled={cancelling}
+                    className="flex-1 h-11 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-all disabled:opacity-60">
+                    {cancelling ? "…" : "Да, отказаться"}
+                  </button>
+                </div>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -485,6 +604,15 @@ export default function WorkerDashboard() {
           subtitle={activeOrder.location_name || "Адрес не указан"}
           trackSelf
           onClose={() => setShowNav(false)}
+        />
+      )}
+
+      {photoStep && activeOrder && (
+        <WashPhotoModal
+          orderId={activeOrder.id}
+          mode={photoStep}
+          onConfirm={photoStep === "before" ? confirmBeforePhotos : confirmAfterPhotos}
+          onClose={() => setPhotoStep(null)}
         />
       )}
     </>

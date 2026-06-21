@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { User, Phone, Mail, Save, Check, AlertCircle, LogOut } from "lucide-react";
+import { User, Phone, Mail, Save, Check, AlertCircle, LogOut, Star } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserContext } from "@/lib/context/UserContext";
 import { getInitials } from "@/lib/hooks/useUser";
@@ -17,6 +17,8 @@ export default function WorkerProfilePage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState("");
+  const [avgRating, setAvgRating] = useState<number | null>(null);
+  const [ratedCount, setRatedCount] = useState(0);
 
   useEffect(() => {
     if (profile) {
@@ -24,6 +26,22 @@ export default function WorkerProfilePage() {
       setPhone(profile.phone ?? "");
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const supabase = createClient();
+    supabase
+      .from("orders")
+      .select("user_rating")
+      .eq("worker_id", profile.id)
+      .eq("status", "completed")
+      .not("user_rating", "is", null)
+      .then(({ data }) => {
+        const ratings = (data ?? []).map(o => o.user_rating as number);
+        setRatedCount(ratings.length);
+        setAvgRating(ratings.length > 0 ? ratings.reduce((s, r) => s + r, 0) / ratings.length : null);
+      });
+  }, [profile?.id]);
 
   const handleSave = async () => {
     if (!profile?.id) return;
@@ -72,9 +90,17 @@ export default function WorkerProfilePage() {
         </div>
         <div className="font-bold text-slate-900">{profile?.name}</div>
         <div className="text-sm text-slate-400">{profile?.email}</div>
-        <div className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full bg-brand-blue/10 border border-brand-blue/20">
-          <div className="w-1.5 h-1.5 rounded-full bg-brand-blue" />
-          <span className="text-xs font-semibold text-brand-blue">Мойщик</span>
+        <div className="flex items-center justify-center gap-2 mt-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-blue/10 border border-brand-blue/20">
+            <div className="w-1.5 h-1.5 rounded-full bg-brand-blue" />
+            <span className="text-xs font-semibold text-brand-blue">Мойщик</span>
+          </div>
+          {avgRating != null && (
+            <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-yellow-50 border border-yellow-200">
+              <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+              <span className="text-xs font-semibold text-yellow-600">{avgRating.toFixed(1)} ({ratedCount})</span>
+            </div>
+          )}
         </div>
       </div>
 

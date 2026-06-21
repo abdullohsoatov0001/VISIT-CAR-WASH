@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search, Filter, Eye, Bell, MapPin, ChevronDown, X, Star } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/utils";
 
 type Order = {
   id: string;
@@ -21,6 +22,9 @@ type Order = {
   completed_at: string | null;
   user_rating: number | null;
   worker_rating: number | null;
+  review_text: string | null;
+  before_photos: string[] | null;
+  after_photos: string[] | null;
   client_name?: string;
   client_phone?: string | null;
 };
@@ -55,7 +59,7 @@ export default function AdminOrdersPage() {
     async function load() {
       const { data: orderRows } = await supabase
         .from("orders")
-        .select("id, order_number, user_id, service_type, worker_name, location_name, price, status, created_at, notes, scheduled_at, completed_at, user_rating, worker_rating")
+        .select("id, order_number, user_id, service_type, worker_name, location_name, price, status, created_at, notes, scheduled_at, completed_at, user_rating, worker_rating, review_text, before_photos, after_photos")
         .order("created_at", { ascending: false })
         .limit(100);
 
@@ -75,12 +79,16 @@ export default function AdminOrdersPage() {
 
     load();
 
+    const debouncedLoad = debounce(load, 1000);
     const channel = supabase
       .channel("admin-orders")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, debouncedLoad)
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      debouncedLoad.cancel();
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const filtered = orders.filter((o) => {
@@ -215,6 +223,39 @@ export default function AdminOrdersPage() {
                       {Array.from({ length: 5 }).map((_, j) => (
                         <Star key={j} className={`w-3.5 h-3.5 ${j < selected.user_rating! ? "text-yellow-400 fill-yellow-400" : "text-slate-200"}`} />
                       ))}
+                    </div>
+                  </div>
+                )}
+                {selected.review_text && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <div className="text-slate-400 mb-1">Отзыв клиента</div>
+                    <div className="text-slate-700 italic">"{selected.review_text}"</div>
+                  </div>
+                )}
+                {((selected.before_photos?.length ?? 0) > 0 || (selected.after_photos?.length ?? 0) > 0) && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <div className="text-slate-400 mb-2">Фото мойки</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">До</div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(selected.before_photos ?? []).map((url, i) => (
+                            <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                              <img src={url} alt="before" className="w-full h-16 object-cover rounded-lg border border-slate-200" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">После</div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(selected.after_photos ?? []).map((url, i) => (
+                            <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                              <img src={url} alt="after" className="w-full h-16 object-cover rounded-lg border border-slate-200" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}

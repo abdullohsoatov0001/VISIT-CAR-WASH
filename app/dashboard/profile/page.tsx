@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   User, Phone, Mail, Car, Camera, Shield, Star,
-  Award, Edit2, Check, ChevronRight, LogOut, Droplets, Plus, X
+  Award, Edit2, Check, ChevronRight, LogOut, Droplets, Plus, X, MapPin, Trash2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { useUserContext } from "@/lib/context/UserContext";
 import { getInitials } from "@/lib/hooks/useUser";
+import type { PickedLocation } from "@/components/LocationPicker";
+
+const LocationPicker = dynamic(() => import("@/components/LocationPicker"), { ssr: false });
 
 type Vehicle = {
   id: string;
@@ -19,6 +23,15 @@ type Vehicle = {
   year: number | null;
   plate: string | null;
   color: string | null;
+  is_default: boolean;
+};
+
+type Address = {
+  id: string;
+  label: string;
+  address: string;
+  lat: number;
+  lng: number;
   is_default: boolean;
 };
 
@@ -35,6 +48,12 @@ export default function DashboardProfilePage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [showAddCar, setShowAddCar] = useState(false);
   const [newCar, setNewCar] = useState({ make: "", model: "", year: "", plate: "", color: "" });
+
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [showAddAddress, setShowAddAddress] = useState(false);
+  const [newAddressLabel, setNewAddressLabel] = useState("");
+  const [newAddressLocation, setNewAddressLocation] = useState<PickedLocation | null>(null);
+  const [savingAddress, setSavingAddress] = useState(false);
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -63,7 +82,44 @@ export default function DashboardProfilePage() {
       .eq("user_id", profile.id)
       .order("created_at", { ascending: true })
       .then(({ data }) => setVehicles(data ?? []));
+
+    supabase
+      .from("addresses")
+      .select("id, label, address, lat, lng, is_default")
+      .eq("user_id", profile.id)
+      .order("created_at", { ascending: true })
+      .then(({ data }) => setAddresses(data ?? []));
   }, [profile?.id]);
+
+  const handleAddAddress = async () => {
+    if (!profile || !newAddressLabel.trim() || !newAddressLocation || savingAddress) return;
+    setSavingAddress(true);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("addresses")
+      .insert({
+        user_id: profile.id,
+        label: newAddressLabel.trim(),
+        address: newAddressLocation.address,
+        lat: newAddressLocation.lat,
+        lng: newAddressLocation.lng,
+        is_default: addresses.length === 0,
+      })
+      .select("id, label, address, lat, lng, is_default")
+      .single();
+
+    if (data) setAddresses((prev) => [...prev, data]);
+    setSavingAddress(false);
+    setNewAddressLabel("");
+    setNewAddressLocation(null);
+    setShowAddAddress(false);
+  };
+
+  const handleDeleteAddress = async (id: string) => {
+    setAddresses((prev) => prev.filter((a) => a.id !== id));
+    const supabase = createClient();
+    await supabase.from("addresses").delete().eq("id", id);
+  };
 
   const handleSave = async () => {
     if (!profile) return;
@@ -269,6 +325,69 @@ export default function DashboardProfilePage() {
           </div>
         )}
       </motion.div>
+
+      {/* Addresses */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.14 }}
+        className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-sm font-bold text-slate-900">Мои адреса</div>
+          <button onClick={() => setShowAddAddress(true)} className="text-xs text-brand-blue font-semibold hover:text-brand-blue/80 transition-colors">
+            + Добавить адрес
+          </button>
+        </div>
+        {addresses.length === 0 ? (
+          <div className="text-sm text-slate-400 text-center py-4">Адреса пока не добавлены</div>
+        ) : (
+          <div className="space-y-3">
+            {addresses.map((a, i) => (
+              <motion.div key={a.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 + i * 0.06 }}
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${a.is_default ? "border-brand-blue/30 bg-brand-blue/5" : "border-slate-200 hover:border-slate-300"}`}>
+                <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0">
+                  <MapPin className="w-5 h-5 text-slate-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-slate-900">{a.label}</div>
+                  <div className="text-xs text-slate-500 truncate">{a.address}</div>
+                </div>
+                {a.is_default && (
+                  <span className="text-[10px] bg-brand-blue/10 text-brand-blue border border-brand-blue/20 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
+                    {t("payment.default_")}
+                  </span>
+                )}
+                <button onClick={() => handleDeleteAddress(a.id)} className="text-slate-300 hover:text-red-400 transition-colors flex-shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Add address modal */}
+      <AnimatePresence>
+        {showAddAddress && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
+            onClick={() => setShowAddAddress(false)}>
+            <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-bold text-slate-900">Новый адрес</h3>
+                <button onClick={() => setShowAddAddress(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+              </div>
+              <input value={newAddressLabel} onChange={(e) => setNewAddressLabel(e.target.value)}
+                placeholder="Название (Дом, Офис...)"
+                className="w-full h-11 px-4 mb-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-brand-blue/50" />
+              <LocationPicker value={newAddressLocation} onChange={setNewAddressLocation} />
+              <button onClick={handleAddAddress} disabled={!newAddressLabel.trim() || !newAddressLocation || savingAddress}
+                className="w-full h-12 mt-5 rounded-xl bg-brand-blue text-white font-semibold text-sm hover:bg-brand-blue/90 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50">
+                {savingAddress ? "Сохраняем…" : <><Plus className="w-4 h-4" /> Сохранить адрес</>}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Add car modal */}
       <AnimatePresence>

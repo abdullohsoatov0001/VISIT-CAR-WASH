@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Bell, ArrowUpRight, ArrowDownRight, CreditCard, TrendingUp, Check, X, Wallet } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/utils";
 
 type Tx = {
   id: string;
@@ -65,11 +66,15 @@ export default function AdminPaymentsPage() {
     }
 
     load();
+    const debouncedLoad = debounce(load, 1000);
     const channel = supabase.channel("admin-payments")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "payout_requests" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, debouncedLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "payout_requests" }, debouncedLoad)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      debouncedLoad.cancel();
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const processPayout = async (id: string, status: "paid" | "rejected") => {

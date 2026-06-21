@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart3, Users, Car, DollarSign, TrendingUp,
-  Bell, Settings, Shield, Droplets, Activity, Database, Cpu, Globe, LogOut, Menu, X
+  Bell, Settings, Shield, Droplets, Activity, Database, Cpu, Globe, LogOut, Menu, X, AlertOctagon
 } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
@@ -31,6 +31,7 @@ function Sidebar({ mobile = false, onClose }: { mobile?: boolean; onClose?: () =
     { label: t("admin.analytics"), icon: TrendingUp, href: "/admin/analytics" },
     { label: t("admin.alerts"), icon: Bell, href: "/admin/alerts" },
     { label: t("admin.payments"), icon: DollarSign, href: "/admin/payments" },
+    { label: "Ошибки", icon: AlertOctagon, href: "/admin/errors" },
     { label: t("admin.settings"), icon: Settings, href: "/admin/settings" },
   ];
 

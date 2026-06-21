@@ -43,8 +43,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     load();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      load();
+    // INITIAL_SESSION дублирует load() выше, а TOKEN_REFRESHED срабатывает
+    // регулярно в фоне (раз в ~час) и не означает, что профиль изменился —
+    // перезапрашиваем только когда реально могло поменяться состояние юзера
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
+        load();
+      }
     });
 
     return () => subscription.unsubscribe();

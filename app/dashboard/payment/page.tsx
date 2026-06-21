@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { CreditCard, Plus, ArrowUpRight, ArrowDownRight, Shield, X } from "lucide-react";
+import { CreditCard, Plus, ArrowUpRight, ArrowDownRight, Shield, X, Zap, Star, Award, Check } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { useUserContext } from "@/lib/context/UserContext";
@@ -24,6 +25,21 @@ type Transaction = {
   created_at: string;
 };
 
+type Subscription = {
+  id: string;
+  plan: string;
+  status: string;
+  washes_left: number;
+  washes_total: number;
+  current_period_end: string;
+};
+
+const SUBSCRIPTION_PLANS = [
+  { id: "starter", name: "Starter", icon: Zap,  price: 159000, washes: 4,  color: "text-brand-blue border-brand-blue/30 bg-brand-blue/5" },
+  { id: "pro",     name: "Pro",     icon: Star, price: 299000, washes: 8,  color: "text-brand-purple border-brand-purple/30 bg-brand-purple/5" },
+  { id: "black",   name: "Black",   icon: Award, price: 499000, washes: -1, color: "text-slate-900 border-slate-300 bg-slate-50" },
+];
+
 const cardGradient = (type: string) =>
   type.toLowerCase() === "humo" ? "from-slate-700 to-slate-900" : "from-brand-blue to-brand-purple";
 
@@ -32,13 +48,38 @@ function formatDate(iso: string) {
 }
 
 export default function DashboardPaymentPage() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardPaymentInner />
+    </Suspense>
+  );
+}
+
+function DashboardPaymentInner() {
   const { t } = useLanguage();
   const { profile } = useUserContext();
+  const searchParams = useSearchParams();
 
   const [cards, setCards] = useState<Card[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [showAddCard, setShowAddCard] = useState(false);
   const [newCard, setNewCard] = useState({ number: "", type: "Visa", expires: "" });
+
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [activatingPlan, setActivatingPlan] = useState<string | null>(null);
+
+  const loadSubscription = async (userId: string) => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("subscriptions")
+      .select("id, plan, status, washes_left, washes_total, current_period_end")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setSubscription(data ?? null);
+  };
 
   useEffect(() => {
     if (!profile) return;
@@ -58,7 +99,49 @@ export default function DashboardPaymentPage() {
       .order("created_at", { ascending: false })
       .limit(20)
       .then(({ data }) => setTransactions(data ?? []));
+
+    loadSubscription(profile.id);
   }, [profile?.id]);
+
+  const activatePlan = async (planId: string) => {
+    if (!profile || activatingPlan) return;
+    const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId);
+    if (!plan) return;
+
+    setActivatingPlan(planId);
+    const supabase = createClient();
+
+    // Активация без реального платёжного процессора (Click/Payme вне скоупа) —
+    // подписка включается сразу, как и фейковые карты на этой же странице
+    if (subscription) {
+      await supabase.from("subscriptions").update({ status: "cancelled" }).eq("id", subscription.id);
+    }
+
+    const periodEnd = new Date();
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+    await supabase.from("subscriptions").insert({
+      user_id: profile.id,
+      plan: plan.id,
+      status: "active",
+      washes_left: plan.washes,
+      washes_total: plan.washes,
+      price: plan.price,
+      current_period_end: periodEnd.toISOString(),
+    });
+
+    await loadSubscription(profile.id);
+    setActivatingPlan(null);
+  };
+
+  const cancelSubscription = async () => {
+    if (!subscription) return;
+    const supabase = createClient();
+    await supabase.from("subscriptions").update({ status: "cancelled" }).eq("id", subscription.id);
+    setSubscription(null);
+  };
+
+  const suggestedPlan = searchParams.get("plan");
 
   const handleAddCard = async () => {
     if (!profile || newCard.number.replace(/\D/g, "").length < 4) return;
@@ -92,6 +175,58 @@ export default function DashboardPaymentPage() {
       <div>
         <h1 className="text-xl font-black text-slate-900">{t("payment.title")}</h1>
         <p className="text-sm text-slate-400">{t("payment.subtitle")}</p>
+      </div>
+
+      {/* Subscription */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-bold text-slate-900">Подписка</span>
+          {subscription && (
+            <button onClick={cancelSubscription} className="text-xs text-red-400 font-semibold hover:text-red-500 transition-colors">
+              Отменить подписку
+            </button>
+          )}
+        </div>
+
+        {subscription ? (
+          <div className="bg-gradient-to-br from-brand-blue to-brand-purple rounded-2xl p-5 text-white shadow-lg">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <div className="text-xs opacity-70 mb-0.5 uppercase tracking-wide">Активный план</div>
+                <div className="text-xl font-black capitalize">{subscription.plan}</div>
+              </div>
+              <Check className="w-6 h-6 opacity-80" />
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="opacity-80">
+                {subscription.washes_left < 0 ? "Безлимит моек" : `Осталось моек: ${subscription.washes_left} / ${subscription.washes_total}`}
+              </span>
+              <span className="opacity-70 text-xs">до {formatDate(subscription.current_period_end)}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-3 gap-3">
+            {SUBSCRIPTION_PLANS.map((plan) => {
+              const Icon = plan.icon;
+              return (
+                <div key={plan.id}
+                  className={`relative border rounded-2xl p-4 ${plan.color} ${suggestedPlan === plan.id ? "ring-2 ring-brand-blue/40" : ""}`}>
+                  {suggestedPlan === plan.id && (
+                    <span className="absolute -top-2.5 left-4 text-[10px] bg-brand-blue text-white px-2 py-0.5 rounded-full font-semibold">Выбрано</span>
+                  )}
+                  <Icon className="w-5 h-5 mb-2" />
+                  <div className="font-bold text-sm mb-0.5">{plan.name}</div>
+                  <div className="text-xs opacity-70 mb-3">{plan.washes < 0 ? "Безлимит" : `${plan.washes} моек/мес`}</div>
+                  <div className="font-black text-base mb-3">{(plan.price / 1000).toFixed(0)}K <span className="text-xs font-normal opacity-60">so'm/мес</span></div>
+                  <button onClick={() => activatePlan(plan.id)} disabled={activatingPlan !== null}
+                    className="w-full h-9 rounded-xl bg-white/80 text-slate-900 text-xs font-bold hover:bg-white transition-all disabled:opacity-60">
+                    {activatingPlan === plan.id ? "Подключаем…" : "Подключить"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Cards */}

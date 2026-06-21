@@ -9,6 +9,7 @@ import {
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { useUserContext } from "@/lib/context/UserContext";
+import { useRouter } from "next/navigation";
 
 type NotifType = "order" | "payment" | "promo" | "system" | "rating";
 
@@ -20,6 +21,7 @@ interface Notif {
   created_at: string;
   read: boolean;
   urgent: boolean;
+  order_id: string | null;
 }
 
 const typeConfig: Record<NotifType, { icon: React.ElementType; color: string; bg: string; border: string }> = {
@@ -46,6 +48,7 @@ function formatTime(iso: string) {
 
 export default function DashboardNotificationsPage() {
   const { t } = useLanguage();
+  const router = useRouter();
   const { profile } = useUserContext();
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [filter, setFilter] = useState<Filter>("All");
@@ -56,7 +59,7 @@ export default function DashboardNotificationsPage() {
 
     supabase
       .from("notifications")
-      .select("id, type, title, body, created_at, read, urgent")
+      .select("id, type, title, body, created_at, read, urgent, order_id")
       .eq("user_id", profile.id)
       .order("created_at", { ascending: false })
       .then(({ data }) => setNotifs(data ?? []));
@@ -92,6 +95,13 @@ export default function DashboardNotificationsPage() {
     const supabase = createClient();
     setNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
     await supabase.from("notifications").update({ read: true }).eq("id", id);
+  };
+
+  const openNotif = (n: Notif) => {
+    markRead(n.id);
+    if (n.type === "rating" && n.order_id) {
+      router.push(`/dashboard/rate/${n.order_id}`);
+    }
   };
 
   const remove = async (id: string) => {
@@ -173,7 +183,7 @@ export default function DashboardNotificationsPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, x: -20, height: 0, marginBottom: 0 }}
                   transition={{ delay: i * 0.04 }}
-                  onClick={() => markRead(n.id)}
+                  onClick={() => openNotif(n)}
                   className={`relative flex gap-3 p-4 rounded-2xl border cursor-pointer transition-all group
                     ${n.read ? "bg-white border-slate-200 hover:border-slate-300" : "bg-brand-blue/[0.03] border-brand-blue/20 hover:border-brand-blue/40"}`}>
                   {!n.read && (

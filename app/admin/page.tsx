@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/utils";
 
 type Order = {
   id: string;
@@ -123,12 +124,18 @@ export default function AdminOverview() {
 
     load();
 
+    // GPS мойщика пишется в orders раз в ~1.5 сек во время поездки — без
+    // дебаунса каждое такое обновление гоняло бы все 5 запросов выше заново
+    const debouncedLoad = debounce(load, 1000);
     const channel = supabase
       .channel("admin-overview")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, debouncedLoad)
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      debouncedLoad.cancel();
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const totalRevenue   = orders.filter(o => o.status === "completed").reduce((s, o) => s + o.price, 0);

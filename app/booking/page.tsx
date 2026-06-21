@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { MapPin, Car, Clock, CreditCard, Check, ChevronRight, ArrowLeft, Droplets, Zap, Shield, Navigation, Plus } from "lucide-react";
+import { Car, Clock, CreditCard, Check, ChevronRight, ArrowLeft, Droplets, Zap, Shield, Plus, MapPin } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
-import { getClientCoords } from "@/lib/geo";
+import type { PickedLocation } from "@/components/LocationPicker";
+
+const LocationPicker = dynamic(() => import("@/components/LocationPicker"), { ssr: false });
 
 const colorCard: Record<string, string> = {
   blue: "border-brand-blue/30 bg-brand-blue/5",
@@ -38,13 +41,7 @@ export default function BookingPage() {
     { id: "polish", label: t("booking.addonHeadlight"), price: 25000, icon: "💡" },
   ];
 
-  const savedLocations = [
-    { id: "home", label: t("booking.locHome"), address: "Yunusobod, 12-house, apt. 45", icon: "🏠" },
-    { id: "office", label: t("booking.locOffice"), address: "Amir Temur Ave, 107-B", icon: "🏢" },
-    { id: "mall", label: t("booking.locMall"), address: "Kichik Halqa yoli 2", icon: "🏪" },
-  ];
-
-  const paymentMethods = [
+  const basePaymentMethods = [
     { id: "card", label: t("booking.payCard"), icon: "💳", desc: t("booking.payCardDesc") },
     { id: "click", label: t("booking.payClick"), icon: "🟢", desc: t("booking.payClickDesc") },
     { id: "payme", label: t("booking.payPayme"), icon: "🔵", desc: t("booking.payPaymeDesc") },
@@ -54,15 +51,65 @@ export default function BookingPage() {
   const [step, setStep] = useState(0);
   const [selectedService, setSelectedService] = useState("premium");
   const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
-  const [selectedLocation, setSelectedLocation] = useState("home");
+  const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
+  const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
+  const [savedAddresses, setSavedAddresses] = useState<{ id: string; label: string; address: string; lat: number; lng: number; is_default: boolean }[]>([]);
   const [selectedTime, setSelectedTime] = useState("Now (ASAP)");
   const [selectedDate, setSelectedDate] = useState("Today");
   const [paymentMethod, setPaymentMethod] = useState("card");
+  const [subscription, setSubscription] = useState<{ id: string; plan: string; washes_left: number } | null>(null);
+
+  // Загружаем реальные сохранённые адреса пользователя (профиль → "Мои адреса")
+  // и активную подписку (если есть — можно оплатить мойку моками вместо карты)
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user) return;
+      supabase
+        .from("addresses")
+        .select("id, label, address, lat, lng, is_default")
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: true })
+        .then(({ data }) => {
+          setSavedAddresses(data ?? []);
+          const def = (data ?? []).find(a => a.is_default) ?? data?.[0];
+          if (def) {
+            setSelectedLocation(def.id);
+            setPickedLocation({ lat: def.lat, lng: def.lng, address: def.address });
+          }
+        });
+
+      supabase
+        .from("subscriptions")
+        .select("id, plan, washes_left")
+        .eq("user_id", session.user.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data && (data.washes_left < 0 || data.washes_left > 0)) {
+            setSubscription(data);
+            setPaymentMethod("subscription");
+          }
+        });
+    });
+  }, []);
+
+  const choosePreset = (id: string) => {
+    setSelectedLocation(id);
+    const preset = savedAddresses.find(l => l.id === id);
+    if (preset) setPickedLocation({ lat: preset.lat, lng: preset.lng, address: preset.address });
+  };
   const [loading, setLoading] = useState(false);
+
+  const paymentMethods = subscription
+    ? [{ id: "subscription", label: `Подписка ${subscription.plan}`, icon: "⭐", desc: subscription.washes_left < 0 ? "Безлимит — без оплаты" : `Осталось моек: ${subscription.washes_left}` }, ...basePaymentMethods]
+    : basePaymentMethods;
 
   const service = services.find((s) => s.id === selectedService)!;
   const addonTotal = addons.filter((a) => selectedAddons.includes(a.id)).reduce((s, a) => s + a.price, 0);
-  const total = service.price + addonTotal;
+  const total = paymentMethod === "subscription" ? addonTotal : service.price + addonTotal;
 
   const toggleAddon = (id: string) => setSelectedAddons((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
@@ -77,10 +124,8 @@ export default function BookingPage() {
       return;
     }
 
-    const location = savedLocations.find(l => l.id === selectedLocation);
-
     const orderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
-    const coords = await getClientCoords();
+    const { data: profileData } = await supabase.from("profiles").select("phone").eq("id", user.id).single();
 
     const { error } = await supabase.from("orders").insert({
       user_id:       user.id,
@@ -88,17 +133,22 @@ export default function BookingPage() {
       service_type:  service.name,
       status:        "pending",
       price:         total,
-      location_name: location?.address ?? "",
+      location_name: pickedLocation?.address ?? "",
       notes:         selectedAddons.length > 0 ? selectedAddons.join(", ") : null,
       scheduled_at:  selectedTime === "Now (ASAP)" ? new Date().toISOString() : null,
-      client_lat:    coords?.lat ?? null,
-      client_lng:    coords?.lng ?? null,
+      client_lat:    pickedLocation?.lat ?? null,
+      client_lng:    pickedLocation?.lng ?? null,
+      client_phone:  profileData?.phone ?? null,
     });
 
     if (error) {
       setLoading(false);
       alert("Ошибка: " + error.message);
       return;
+    }
+
+    if (paymentMethod === "subscription" && subscription && subscription.washes_left > 0) {
+      await supabase.from("subscriptions").update({ washes_left: subscription.washes_left - 1 }).eq("id", subscription.id);
     }
 
     if (user.email) {
@@ -110,7 +160,7 @@ export default function BookingPage() {
           orderNumber,
           serviceType: service.name,
           price: total,
-          locationName: location?.address ?? "",
+          locationName: pickedLocation?.address ?? "",
         }),
       }).catch(() => {});
     }
@@ -218,41 +268,33 @@ export default function BookingPage() {
               <h1 className="text-2xl font-black text-slate-900 mb-1">{t("booking.chooseLocation")}</h1>
               <p className="text-slate-400 text-sm mb-6">{t("booking.savedLocations")}</p>
 
-              <div className="space-y-3 mb-6">
-                {savedLocations.map((loc) => (
-                  <motion.div key={loc.id} whileHover={{ x: 4 }} onClick={() => setSelectedLocation(loc.id)}
-                    className={`flex items-center gap-4 p-4 rounded-2xl border cursor-pointer transition-all ${selectedLocation === loc.id ? "bg-brand-blue/5 border-brand-blue/30" : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"}`}>
-                    <span className="text-2xl">{loc.icon}</span>
-                    <div className="flex-1">
-                      <div className="font-semibold text-slate-900 text-sm">{loc.label}</div>
-                      <div className="text-xs text-slate-400">{loc.address}</div>
-                    </div>
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedLocation === loc.id ? "border-brand-blue bg-brand-blue" : "border-slate-300"}`}>
-                      {selectedLocation === loc.id && <Check className="w-3 h-3 text-white" />}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="relative mb-4">
-                <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input placeholder={t("booking.addressPlaceholder")} className="w-full h-12 pl-10 pr-4 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 transition-all shadow-sm" />
-              </div>
-
-              <div className="h-48 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden relative">
-                <div className="absolute inset-0 grid-bg opacity-40" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <Navigation className="w-8 h-8 text-brand-blue/40 mx-auto mb-2" />
-                    <div className="text-xs text-slate-400">Interactive map</div>
-                  </div>
+              {savedAddresses.length > 0 && (
+                <div className="space-y-3 mb-6">
+                  {savedAddresses.map((loc) => (
+                    <motion.div key={loc.id} whileHover={{ x: 4 }} onClick={() => choosePreset(loc.id)}
+                      className={`flex items-center gap-4 p-4 rounded-2xl border cursor-pointer transition-all ${selectedLocation === loc.id ? "bg-brand-blue/5 border-brand-blue/30" : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"}`}>
+                      <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0">
+                        <MapPin className="w-4 h-4 text-slate-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-900 text-sm">{loc.label}</div>
+                        <div className="text-xs text-slate-400 truncate">{loc.address}</div>
+                      </div>
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selectedLocation === loc.id ? "border-brand-blue bg-brand-blue" : "border-slate-300"}`}>
+                        {selectedLocation === loc.id && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                    </motion.div>
+                  ))}
                 </div>
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                  <motion.div animate={{ y: [-4, 0, -4] }} transition={{ duration: 2, repeat: Infinity }}>
-                    <MapPin className="w-8 h-8 text-brand-blue drop-shadow-[0_0_8px_rgba(14,165,233,0.5)]" />
-                  </motion.div>
-                </div>
-              </div>
+              )}
+
+              <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">
+                {savedAddresses.length > 0 ? "Или выберите точку на карте" : "Выберите точку на карте"}
+              </p>
+              <LocationPicker
+                value={pickedLocation}
+                onChange={(loc) => { setPickedLocation(loc); setSelectedLocation("custom"); }}
+              />
             </motion.div>
           )}
 
@@ -353,7 +395,7 @@ export default function BookingPage() {
                   ))}
                 </div>
                 {[
-                  { label: t("booking.location"), value: savedLocations.find(l => l.id === selectedLocation)?.address || "", icon: "📍", stepNum: 1 },
+                  { label: t("booking.location"), value: pickedLocation?.address || "", icon: "📍", stepNum: 1 },
                   { label: t("booking.schedule"), value: `${selectedDate} · ${selectedTime}`, icon: "🕐", stepNum: 2 },
                   { label: t("booking.payment"), value: paymentMethods.find(m => m.id === paymentMethod)?.label || paymentMethod, icon: "💳", stepNum: 3 },
                 ].map((row) => (

@@ -58,7 +58,10 @@ export default function TelegramMiniApp() {
 
     const newOrderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
     const loc = locations.find(l => l.id === location);
-    const coords = await getClientCoords();
+    const [coords, profileRes] = await Promise.all([
+      getClientCoords(),
+      supabase.from("profiles").select("phone").eq("id", user.id).single(),
+    ]);
 
     const { error: err } = await supabase.from("orders").insert({
       user_id: user.id,
@@ -70,6 +73,7 @@ export default function TelegramMiniApp() {
       scheduled_at: time === "Now (ASAP)" ? new Date().toISOString() : null,
       client_lat: coords?.lat ?? null,
       client_lng: coords?.lng ?? null,
+      client_phone: profileRes.data?.phone ?? null,
     });
 
     setLoading(false);

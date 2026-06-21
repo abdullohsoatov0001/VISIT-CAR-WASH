@@ -21,6 +21,7 @@ type ActiveOrder = {
   price: number;
   location_name: string;
   worker_name: string | null;
+  worker_phone: string | null;
   worker_lat: number | null;
   worker_lng: number | null;
   worker_speed: number | null;
@@ -39,6 +40,12 @@ const statusSteps = [
 ];
 
 function formatPrice(n: number) { return n.toLocaleString("ru-RU"); }
+
+function formatPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length !== 12) return phone;
+  return `+${digits.slice(0, 3)} ${digits.slice(3, 5)} ${digits.slice(5, 8)} ${digits.slice(8, 10)} ${digits.slice(10, 12)}`;
+}
 
 export default function DashboardTrackingPage() {
   const [order, setOrder]     = useState<ActiveOrder | null>(null);
@@ -59,7 +66,7 @@ export default function DashboardTrackingPage() {
 
       const { data } = await supabase
         .from("orders")
-        .select("id, order_number, service_type, status, price, location_name, worker_name, worker_lat, worker_lng, worker_speed, worker_heading, client_lat, client_lng, created_at")
+        .select("id, order_number, service_type, status, price, location_name, worker_name, worker_phone, worker_lat, worker_lng, worker_speed, worker_heading, client_lat, client_lng, created_at")
         .eq("user_id", user.id)
         .not("status", "in", '("completed","cancelled")')
         .order("created_at", { ascending: false })
@@ -165,7 +172,7 @@ export default function DashboardTrackingPage() {
       {/* Worker */}
       {order.worker_name ? (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+          className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-blue to-brand-purple flex items-center justify-center text-white font-bold text-sm">
               {order.worker_name[0]}
@@ -175,9 +182,16 @@ export default function DashboardTrackingPage() {
               <div className="text-xs text-emerald-500 font-medium">Ваш мойщик</div>
             </div>
           </div>
-          <button className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 hover:text-brand-blue transition-all">
-            <Phone className="w-4 h-4" />
-          </button>
+          {order.worker_phone ? (
+            <a href={`tel:${order.worker_phone}`}
+              className="w-full h-11 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 font-bold text-sm flex items-center justify-center gap-2 hover:border-brand-blue hover:text-brand-blue transition-all">
+              <Phone className="w-4 h-4" /> {formatPhone(order.worker_phone)}
+            </a>
+          ) : (
+            <div className="w-full h-11 rounded-xl bg-slate-50 border border-slate-100 text-slate-300 text-sm font-semibold flex items-center justify-center gap-2">
+              <Phone className="w-4 h-4" /> Телефон мойщика не указан
+            </div>
+          )}
         </motion.div>
       ) : (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}

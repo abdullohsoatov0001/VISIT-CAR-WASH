@@ -13,6 +13,14 @@ type Worker = {
   created_at: string;
 };
 
+type Review = {
+  order_number: string;
+  rating: number;
+  review_text: string | null;
+  client_name: string;
+  completed_at: string;
+};
+
 const statusColor: Record<string, string> = {
   true:  "bg-emerald-50 text-emerald-600 border-emerald-200",
   false: "bg-slate-50 text-slate-400 border-slate-200",
@@ -31,6 +39,9 @@ export default function AdminWorkersPage() {
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [ratings, setRatings]     = useState<Record<string, { avg: number; count: number }>>({});
+  const [reviewsByWorker, setReviewsByWorker] = useState<Record<string, Review[]>>({});
+  const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
 
   // Form state
   const [name, setName]         = useState("");
@@ -48,12 +59,50 @@ export default function AdminWorkersPage() {
       .from("profiles")
       .select("id, name, phone, is_active, created_at")
       .eq("role", "WORKER")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(500);
     setWorkers(data ?? []);
     setLoading(false);
   }
 
-  useEffect(() => { fetchWorkers(); }, []);
+  async function fetchReviews() {
+    const supabase = createClient();
+    const { data: orderRows } = await supabase
+      .from("orders")
+      .select("order_number, worker_id, user_id, user_rating, review_text, completed_at")
+      .eq("status", "completed")
+      .not("user_rating", "is", null)
+      .not("worker_id", "is", null);
+
+    const rows = orderRows ?? [];
+    const userIds = Array.from(new Set(rows.map((r: any) => r.user_id)));
+    let names: Record<string, string> = {};
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase.from("profiles").select("id, name").in("id", userIds);
+      names = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.name]));
+    }
+
+    const grouped: Record<string, Review[]> = {};
+    const sums: Record<string, { total: number; count: number }> = {};
+    for (const r of rows as any[]) {
+      if (!grouped[r.worker_id]) grouped[r.worker_id] = [];
+      grouped[r.worker_id].push({
+        order_number: r.order_number,
+        rating: r.user_rating,
+        review_text: r.review_text,
+        client_name: names[r.user_id] ?? "—",
+        completed_at: r.completed_at,
+      });
+      sums[r.worker_id] = sums[r.worker_id] ?? { total: 0, count: 0 };
+      sums[r.worker_id].total += r.user_rating;
+      sums[r.worker_id].count += 1;
+    }
+
+    setReviewsByWorker(grouped);
+    setRatings(Object.fromEntries(Object.entries(sums).map(([id, s]) => [id, { avg: s.total / s.count, count: s.count }])));
+  }
+
+  useEffect(() => { fetchWorkers(); fetchReviews(); }, []);
 
   const filtered = workers.filter(w =>
     !search || w.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -162,9 +211,13 @@ export default function AdminWorkersPage() {
           </div>
         ) : (
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filtered.map((w, i) => (
+            {filtered.map((w, i) => {
+              const rating = ratings[w.id];
+              const reviewCount = reviewsByWorker[w.id]?.length ?? 0;
+              return (
               <motion.div key={w.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
-                className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-brand-blue/20 hover:shadow-md transition-all shadow-sm">
+                onClick={() => reviewCount > 0 && setSelectedWorker(w)}
+                className={`bg-white border border-slate-200 rounded-2xl p-5 hover:border-brand-blue/20 hover:shadow-md transition-all shadow-sm ${reviewCount > 0 ? "cursor-pointer" : ""}`}>
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-blue to-brand-purple flex items-center justify-center text-white text-sm font-bold">
@@ -180,11 +233,19 @@ export default function AdminWorkersPage() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1 text-xs text-slate-400">
-                  <MapPin className="w-3 h-3" /> Добавлен {formatDate(w.created_at)}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1 text-xs text-slate-400">
+                    <MapPin className="w-3 h-3" /> Добавлен {formatDate(w.created_at)}
+                  </div>
+                  {rating && (
+                    <div className="flex items-center gap-1 text-xs font-semibold text-yellow-600">
+                      <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" /> {rating.avg.toFixed(1)} ({rating.count})
+                    </div>
+                  )}
                 </div>
               </motion.div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -288,6 +349,46 @@ export default function AdminWorkersPage() {
                   </motion.button>
                 </div>
               </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Worker reviews modal */}
+      <AnimatePresence>
+        {selectedWorker && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setSelectedWorker(null); }}>
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[80vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">{selectedWorker.name}</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {ratings[selectedWorker.id] ? `${ratings[selectedWorker.id].avg.toFixed(1)} ★ · ${ratings[selectedWorker.id].count} отзывов` : "Отзывов нет"}
+                  </p>
+                </div>
+                <button onClick={() => setSelectedWorker(null)} className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-all">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                {(reviewsByWorker[selectedWorker.id] ?? []).map((r, i) => (
+                  <div key={i} className="border border-slate-100 rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm font-semibold text-slate-900">{r.client_name}</span>
+                      <div className="flex gap-0.5">
+                        {Array.from({ length: 5 }).map((_, j) => (
+                          <Star key={j} className={`w-3 h-3 ${j < r.rating ? "text-yellow-400 fill-yellow-400" : "text-slate-200"}`} />
+                        ))}
+                      </div>
+                    </div>
+                    {r.review_text && <p className="text-sm text-slate-600 italic mb-1">"{r.review_text}"</p>}
+                    <div className="text-[10px] text-slate-400">{r.order_number} · {formatDate(r.completed_at)}</div>
+                  </div>
+                ))}
+              </div>
             </motion.div>
           </motion.div>
         )}

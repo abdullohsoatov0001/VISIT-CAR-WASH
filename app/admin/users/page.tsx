@@ -42,6 +42,7 @@ export default function AdminUsersPage() {
       .select("id, name, phone, is_active, loyalty_tier, total_washes, total_spent, created_at")
       .eq("role", "USER")
       .order("created_at", { ascending: false })
+      .limit(500)
       .then(({ data }) => { setUsers(data ?? []); setLoading(false); });
   }, []);
 

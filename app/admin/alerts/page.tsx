@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Bell, AlertTriangle, Shield, Zap, X, CheckCircle } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/utils";
 
 type Order = {
   order_number: string; status: string; worker_id: string | null; worker_name: string | null;
@@ -37,12 +38,13 @@ export default function AdminAlertsPage() {
     const supabase = createClient();
 
     async function load() {
-      const { data: orders } = await supabase
-        .from("orders")
-        .select("order_number, status, worker_id, worker_name, worker_rating, location_name, created_at");
-
-      const { count: activeWorkers } = await supabase
-        .from("profiles").select("id", { count: "exact", head: true }).eq("role", "WORKER").eq("is_active", true);
+      const [{ data: orders }, { count: activeWorkers }] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("order_number, status, worker_id, worker_name, worker_rating, location_name, created_at"),
+        supabase
+          .from("profiles").select("id", { count: "exact", head: true }).eq("role", "WORKER").eq("is_active", true),
+      ]);
 
       const rows = (orders ?? []) as Order[];
       const result: Alert[] = [];
@@ -74,10 +76,14 @@ export default function AdminAlertsPage() {
     }
 
     load();
+    const debouncedLoad = debounce(load, 1000);
     const channel = supabase.channel("admin-alerts")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, debouncedLoad)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      debouncedLoad.cancel();
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const visible = alerts.filter(a => !dismissed.has(a.id));

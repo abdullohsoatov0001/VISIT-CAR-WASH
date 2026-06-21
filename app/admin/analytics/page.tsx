@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Bell, ArrowUpRight, TrendingUp } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import { debounce } from "@/lib/utils";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -27,10 +28,14 @@ export default function AdminAnalyticsPage() {
       setLoading(false);
     }
     load();
+    const debouncedLoad = debounce(load, 1000);
     const channel = supabase.channel("admin-analytics")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, debouncedLoad)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      debouncedLoad.cancel();
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const completed = orders.filter(o => o.status === "completed");

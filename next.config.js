@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Leaflet/leaflet-routing-machine не переживают двойной вызов эффектов
+  // в dev Strict Mode (гонка: старый async-запрос маршрута падает на уже
+  // удалённой карте). На прод-сборку это не влияет.
+  reactStrictMode: false,
   images: {
     domains: ["images.unsplash.com", "avatars.githubusercontent.com"],
   },

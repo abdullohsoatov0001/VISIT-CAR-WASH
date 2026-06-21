@@ -188,7 +188,7 @@ export default function PricingPage() {
                 ))}
               </ul>
 
-              <Link href="/booking">
+              <Link href={`/dashboard/payment?plan=${plan.id}`}>
                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
                   className={`w-full h-12 rounded-xl font-semibold text-sm border transition-all ${colorBtn[plan.color]}`}>
                   {t("pricing.getStarted")}

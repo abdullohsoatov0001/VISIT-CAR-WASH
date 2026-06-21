@@ -2,20 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Star, Car, TrendingUp, Award } from "lucide-react";
+import { Star, Car, TrendingUp, Award, MessageSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type Order = {
   id: string;
   service_type: string;
+  user_id: string;
   user_rating: number | null;
+  review_text: string | null;
   price: number;
   completed_at: string | null;
   created_at: string;
 };
 
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
+
 export default function WorkerStatsPage() {
   const [orders, setOrders]   = useState<Order[]>([]);
+  const [clientNames, setClientNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,15 +34,25 @@ export default function WorkerStatsPage() {
 
       const { data } = await supabase
         .from("orders")
-        .select("id, service_type, user_rating, price, completed_at, created_at")
+        .select("id, service_type, user_id, user_rating, review_text, price, completed_at, created_at")
         .eq("worker_id", user.id)
         .eq("status", "completed");
 
       setOrders(data ?? []);
       setLoading(false);
+
+      const userIds = Array.from(new Set((data ?? []).filter(o => o.review_text).map(o => o.user_id)));
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase.from("profiles").select("id, name").in("id", userIds);
+        setClientNames(Object.fromEntries((profiles ?? []).map(p => [p.id, p.name])));
+      }
     }
     load();
   }, []);
+
+  const reviewsWithText = orders
+    .filter(o => o.review_text)
+    .sort((a, b) => new Date(b.completed_at ?? b.created_at).getTime() - new Date(a.completed_at ?? a.created_at).getTime());
 
   const total      = orders.length;
   const rated      = orders.filter(o => o.user_rating != null);
@@ -149,6 +166,34 @@ export default function WorkerStatsPage() {
                     </div>
                     <span className="text-xs text-slate-400 w-6 text-right">{r.count}</span>
                   </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Текстовые отзывы */}
+          {reviewsWithText.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquare className="w-4 h-4 text-brand-blue" />
+                <div className="text-sm font-bold text-slate-900">Отзывы клиентов</div>
+                <span className="text-xs bg-brand-blue/10 text-brand-blue px-2 py-0.5 rounded-full font-semibold">{reviewsWithText.length}</span>
+              </div>
+              <div className="space-y-3">
+                {reviewsWithText.map((o, i) => (
+                  <motion.div key={o.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                    className="bg-slate-50 border border-slate-100 rounded-xl p-3.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm font-semibold text-slate-900">{clientNames[o.user_id] ?? "Клиент"}</span>
+                      <div className="flex items-center gap-0.5">
+                        {Array.from({ length: 5 }).map((_, j) => (
+                          <Star key={j} className={`w-3 h-3 ${j < (o.user_rating ?? 0) ? "text-yellow-400 fill-yellow-400" : "text-slate-200"}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-600 leading-relaxed">{o.review_text}</p>
+                    <div className="text-xs text-slate-400 mt-1.5">{o.service_type} · {formatDate(o.completed_at ?? o.created_at)}</div>
+                  </motion.div>
                 ))}
               </div>
             </div>

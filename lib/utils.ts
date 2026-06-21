@@ -35,6 +35,22 @@ export function randomBetween(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+/**
+ * Откладывает вызов fn до тишины в ms — нужно для realtime-подписок на
+ * Supabase, где один заказ может прислать десятки UPDATE-событий подряд
+ * (например GPS-координаты мойщика раз в 1.5 сек) и без дебаунса каждое
+ * из них вызывало бы полный повторный запрос данных.
+ */
+export function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const debounced = (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => fn(...args), ms);
+  };
+  debounced.cancel = () => clearTimeout(timeout);
+  return debounced;
+}
+
 export const staggerContainer = {
   hidden: {},
   show: {
