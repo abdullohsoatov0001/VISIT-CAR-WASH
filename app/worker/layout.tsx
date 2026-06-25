@@ -8,7 +8,8 @@ export default async function WorkerLayout({ children }: { children: ReactNode }
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const role = user.user_metadata?.role ?? "USER";
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  const role = profile?.role ?? "USER";
   if (role !== "WORKER" && role !== "ADMIN") redirect("/dashboard");
 
   return <WorkerLayoutClient>{children}</WorkerLayoutClient>;
