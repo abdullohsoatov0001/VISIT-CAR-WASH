@@ -4,16 +4,17 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Droplets, User, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from "lucide-react";
+import { Droplets, User, Phone, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { roleRedirect } from "@/lib/hooks/useUser";
+import { isValidUzPhone, normalizePhoneDigits, toE164 } from "@/lib/phone";
 
 export default function RegisterPage() {
   const router   = useRouter();
   const supabase = createClient();
 
   const [name, setName]         = useState("");
-  const [email, setEmail]       = useState("");
+  const [phone, setPhone]       = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading]   = useState(false);
@@ -23,24 +24,25 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
 
-    if (!name.trim())       { setError("Введите имя"); return; }
-    if (!email.trim())      { setError("Введите email"); return; }
-    if (password.length < 6) { setError("Пароль минимум 6 символов"); return; }
+    if (!name.trim())          { setError("Введите имя"); return; }
+    if (!isValidUzPhone(phone)) { setError("Введите номер телефона полностью"); return; }
+    if (password.length < 6)    { setError("Пароль минимум 6 символов"); return; }
 
     setLoading(true);
+    const phoneDigits = normalizePhoneDigits(phone);
 
     const { data, error: err } = await supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
+      phone: toE164(phone),
       password,
       options: { data: { name: name.trim(), role: "USER" } },
     });
 
     if (err) {
       setLoading(false);
-      if (err.message?.includes("already registered") || err.message?.includes("User already registered")) {
-        setError("Этот email уже зарегистрирован");
-      } else if (err.message?.toLowerCase().includes("sending confirmation") || err.message?.toLowerCase().includes("email")) {
-        setError("Не удалось отправить письмо с кодом. Проверьте настройки SMTP в Supabase.");
+      if (err.message?.includes("already registered") || err.message?.includes("already been registered")) {
+        setError("Этот номер уже зарегистрирован");
+      } else if (err.message?.toLowerCase().includes("sms") || err.message?.toLowerCase().includes("sending")) {
+        setError("Не удалось отправить SMS с кодом. Проверьте настройки SMS-провайдера в Supabase.");
       } else {
         setError(err.message || `Ошибка при регистрации (код ${err.status ?? "?"})`);
       }
@@ -49,9 +51,10 @@ export default function RegisterPage() {
 
     if (data.user) {
       await supabase.from("profiles").upsert({
-        id:   data.user.id,
-        name: name.trim(),
-        role: "USER",
+        id:    data.user.id,
+        name:  name.trim(),
+        phone: phoneDigits,
+        role:  "USER",
       });
     }
 
@@ -61,7 +64,7 @@ export default function RegisterPage() {
       return;
     }
 
-    router.push(`/verify?method=email&contact=${encodeURIComponent(email.trim().toLowerCase())}`);
+    router.push(`/verify?method=phone&contact=${encodeURIComponent(toE164(phone))}`);
   };
 
   return (
@@ -98,14 +101,15 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Email */}
+            {/* Phone */}
             <div className="relative">
-              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <span className="absolute left-10 top-1/2 -translate-y-1/2 text-sm text-slate-400 font-medium">+998</span>
               <input
-                type="email" value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email"
-                className="w-full h-12 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all"
+                type="tel" value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="90 123 45 67"
+                className="w-full h-12 pl-[5.5rem] pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all"
               />
             </div>
 

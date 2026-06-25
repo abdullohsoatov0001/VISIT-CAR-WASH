@@ -4,15 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Droplets, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle, Check } from "lucide-react";
+import { Droplets, Phone, Lock, Eye, EyeOff, ArrowRight, AlertCircle, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { roleRedirect } from "@/lib/hooks/useUser";
+import { isValidUzPhone, toE164 } from "@/lib/phone";
 
 export default function LoginPage() {
   const router   = useRouter();
   const supabase = createClient();
 
-  const [email, setEmail]       = useState("");
+  const [phone, setPhone]       = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading]   = useState(false);
@@ -23,22 +24,22 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
 
-    if (!email.trim())    { setError("Введите email"); return; }
-    if (!password)        { setError("Введите пароль"); return; }
+    if (!isValidUzPhone(phone)) { setError("Введите номер телефона полностью"); return; }
+    if (!password)              { setError("Введите пароль"); return; }
 
     setLoading(true);
 
     const { data, error: err } = await supabase.auth.signInWithPassword({
-      email:    email.trim().toLowerCase(),
+      phone: toE164(phone),
       password,
     });
 
     if (err) {
       setLoading(false);
       if (err.message.includes("Invalid login credentials") || err.message.includes("invalid_credentials")) {
-        setError("Неверный email или пароль");
-      } else if (err.message.includes("Email not confirmed")) {
-        setError("Email не подтверждён. Обратитесь к администратору.");
+        setError("Неверный номер или пароль");
+      } else if (err.message.includes("Phone not confirmed")) {
+        setError("Номер не подтверждён. Завершите регистрацию через SMS-код.");
       } else {
         setError(err.message || "Ошибка входа");
       }
@@ -135,16 +136,17 @@ export default function LoginPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Email */}
+              {/* Phone */}
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Email</label>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Телефон</label>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <span className="absolute left-10 top-1/2 -translate-y-1/2 text-sm text-slate-400 font-medium">+998</span>
                   <input
-                    type="email" value={email} autoFocus
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    className="w-full h-12 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all"
+                    type="tel" value={phone} autoFocus
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="90 123 45 67"
+                    className="w-full h-12 pl-[5.5rem] pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all"
                     required
                   />
                 </div>

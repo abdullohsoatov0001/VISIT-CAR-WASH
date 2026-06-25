@@ -25,6 +25,7 @@ function VerifyForm() {
 
   const method  = params.get("method") as "email" | "phone" | null;
   const contact = params.get("contact") ?? "";
+  const mode    = params.get("mode") as "signup" | "reset" | null;
 
   const [digits, setDigits]       = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [loading, setLoading]     = useState(false);
@@ -101,10 +102,14 @@ function VerifyForm() {
     }
 
     setSuccess(true);
+    if (mode === "reset") {
+      setTimeout(() => router.push("/reset-password"), 1500);
+      return;
+    }
     const { data: { user: u } } = await supabase.auth.getUser();
     const redirect = roleRedirect(u?.user_metadata?.role ?? "USER");
     setTimeout(() => router.push(redirect), 1500);
-  }, [method, contact, router, supabase]);
+  }, [method, contact, mode, router, supabase]);
 
   const handleResend = async () => {
     if (!canResend || !method || !contact) return;
@@ -273,19 +278,13 @@ function VerifyForm() {
               {/* Back */}
               <div className="flex items-center justify-center mt-8">
                 <button
-                  onClick={() => router.push("/register")}
+                  onClick={() => router.push(mode === "reset" ? "/forgot-password" : "/register")}
                   className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
-                  Назад к регистрации
+                  {mode === "reset" ? "Назад" : "Назад к регистрации"}
                 </button>
               </div>
-
-              {method === "phone" && (
-                <p className="text-xs text-center text-slate-300 mt-4">
-                  SMS отправляется через Twilio. Убедитесь что Twilio настроен в Supabase.
-                </p>
-              )}
             </motion.div>
           )}
         </AnimatePresence>
