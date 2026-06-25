@@ -104,7 +104,10 @@ export default function DashboardTrackingPage() {
           if (["completed", "cancelled"].includes(updated.status)) {
             setOrder(null);
           } else {
-            setOrder(updated);
+            // Мёрджим, а не заменяем целиком — частичный realtime-пейлоад
+            // (напр. от обновления только payment_status) не должен затирать
+            // worker_lat/lng и сбрасывать открытую навигацию
+            setOrder(prev => (prev && prev.id === updated.id ? { ...prev, ...updated } : updated));
           }
         })
         .subscribe();

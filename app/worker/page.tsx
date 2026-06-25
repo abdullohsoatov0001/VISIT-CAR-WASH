@@ -137,7 +137,10 @@ export default function WorkerDashboard() {
         // Этот мойщик принял заказ
         if (updated.worker_id === profile.id) {
           if (["accepted", "en_route", "in_progress"].includes(updated.status)) {
-            setActiveOrder(updated);
+            // Мёрджим, а не заменяем целиком — частичный realtime-пейлоад
+            // (напр. от обновления только payment_status) не должен затирать
+            // worker_lat/lng и сбрасывать открытую навигацию
+            setActiveOrder(prev => (prev && prev.id === updated.id ? { ...prev, ...updated } : updated));
           }
           if (["completed", "cancelled"].includes(updated.status)) {
             setActiveOrder(null);
