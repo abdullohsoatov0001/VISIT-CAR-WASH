@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Save, Shield, Bell as BellIcon, Zap } from "lucide-react";
+import { Save, Shield, Bell as BellIcon, Zap, CreditCard } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 
@@ -11,12 +11,16 @@ type Settings = {
   fraud_alerts: boolean;
   auto_assign_workers: boolean;
   maintenance_mode: boolean;
+  payment_card_number: string;
+  payment_click_number: string;
+  payment_payme_number: string;
 };
 
 export default function AdminSettingsPage() {
   const { t } = useLanguage();
   const [settings, setSettings] = useState<Settings>({
     new_order_alerts: true, fraud_alerts: true, auto_assign_workers: true, maintenance_mode: false,
+    payment_card_number: "", payment_click_number: "", payment_payme_number: "",
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -24,7 +28,13 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     const supabase = createClient();
     supabase.from("app_settings").select("*").eq("id", 1).single().then(({ data }) => {
-      if (data) setSettings(data);
+      if (data) setSettings(prev => ({
+        ...prev,
+        ...data,
+        payment_card_number:  data.payment_card_number  ?? "",
+        payment_click_number: data.payment_click_number ?? "",
+        payment_payme_number: data.payment_payme_number ?? "",
+      }));
       setLoading(false);
     });
   }, []);
@@ -104,6 +114,30 @@ export default function AdminSettingsPage() {
             </motion.div>
           );
         })}
+
+        {/* Payment details */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+          className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-1">
+            <CreditCard className="w-4 h-4 text-brand-blue" />
+            <span className="font-bold text-slate-900 text-sm">Реквизиты для оплаты</span>
+          </div>
+          <div className="text-xs text-slate-400 mb-4">Клиент видит эти данные на шаге оплаты в /booking при выборе карты/Click/Payme</div>
+          <div className="space-y-3">
+            {[
+              { key: "payment_card_number" as const,  label: "Номер карты (Humo/Uzcard)", placeholder: "0000 0000 0000 0000" },
+              { key: "payment_click_number" as const, label: "Номер для Click",            placeholder: "+998 90 000 00 00" },
+              { key: "payment_payme_number" as const, label: "Номер для Payme",            placeholder: "+998 90 000 00 00" },
+            ].map((f) => (
+              <div key={f.key}>
+                <label className="text-xs font-medium text-slate-500 mb-1.5 block">{f.label}</label>
+                <input value={settings[f.key]} onChange={(e) => setSettings(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  placeholder={f.placeholder}
+                  className="w-full h-10 px-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm font-mono focus:outline-none focus:border-brand-blue/50 transition-all" />
+              </div>
+            ))}
+          </div>
+        </motion.div>
 
         {/* System info */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}

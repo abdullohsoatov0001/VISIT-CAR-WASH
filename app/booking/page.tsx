@@ -8,7 +8,7 @@ import { Car, Clock, CreditCard, Check, ChevronRight, ArrowLeft, Droplets, Zap, 
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { compressImage } from "@/lib/image";
-import { COMPANY_PAYMENT_DETAILS, MANUAL_PAYMENT_METHODS } from "@/lib/payment";
+import { buildPaymentDetails, MANUAL_PAYMENT_METHODS, type AppPaymentSettings } from "@/lib/payment";
 import type { PickedLocation } from "@/components/LocationPicker";
 
 const LocationPicker = dynamic(() => import("@/components/LocationPicker"), { ssr: false });
@@ -63,6 +63,19 @@ export default function BookingPage() {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptError, setReceiptError] = useState("");
   const [copiedDetail, setCopiedDetail] = useState(false);
+  const [paymentSettings, setPaymentSettings] = useState<AppPaymentSettings | null>(null);
+  const companyDetails = buildPaymentDetails(paymentSettings);
+
+  // Реквизиты для ручной оплаты задаются админом в /admin/settings
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("app_settings")
+      .select("payment_card_number, payment_click_number, payment_payme_number")
+      .eq("id", 1)
+      .single()
+      .then(({ data }) => { if (data) setPaymentSettings(data); });
+  }, []);
 
   // Загружаем реальные сохранённые адреса пользователя (профиль → "Мои адреса")
   // и активную подписку (если есть — можно оплатить мойку моками вместо карты)
@@ -405,10 +418,10 @@ export default function BookingPage() {
                     <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t("booking.manualPayInstructions")}</div>
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-xs text-slate-400">{COMPANY_PAYMENT_DETAILS[paymentMethod]?.label}</div>
-                        <div className="font-mono font-bold text-slate-900">{COMPANY_PAYMENT_DETAILS[paymentMethod]?.value}</div>
+                        <div className="text-xs text-slate-400">{companyDetails[paymentMethod]?.label}</div>
+                        <div className="font-mono font-bold text-slate-900">{companyDetails[paymentMethod]?.value}</div>
                       </div>
-                      <button onClick={() => copyDetail(COMPANY_PAYMENT_DETAILS[paymentMethod]?.value ?? "")}
+                      <button onClick={() => copyDetail(companyDetails[paymentMethod]?.value ?? "")}
                         className="flex items-center gap-1 h-8 px-3 rounded-lg bg-white border border-slate-200 text-slate-500 text-xs font-medium hover:border-slate-300 transition-all shrink-0">
                         <Copy className="w-3.5 h-3.5" /> {copiedDetail ? t("common.copied") : t("common.copy")}
                       </button>
