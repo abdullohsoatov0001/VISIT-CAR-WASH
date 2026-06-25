@@ -4,11 +4,14 @@ import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { MapPin, Bell, Car, Navigation, Phone, Check, X, Award, Power } from "lucide-react";
+import { MapPin, Bell, Car, Navigation, Phone, Check, X, Award, Power, Clock, AlertCircle, Wallet } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserContext } from "@/lib/context/UserContext";
 import { getInitials } from "@/lib/hooks/useUser";
 import { formatEta, getClientCoords } from "@/lib/geo";
+import { startWorkerLocationSharing } from "@/lib/workerLocation";
+import { formatDateTime } from "@/lib/utils";
+import { MANUAL_PAYMENT_METHODS } from "@/lib/payment";
 
 const NavigationView = dynamic(() => import("@/components/NavigationView"), { ssr: false });
 const WashPhotoModal = dynamic(() => import("@/components/WashPhotoModal"), { ssr: false });
@@ -17,6 +20,17 @@ function formatPhone(phone: string) {
   const digits = phone.replace(/\D/g, "");
   if (digits.length !== 12) return phone;
   return `+${digits.slice(0, 3)} ${digits.slice(3, 5)} ${digits.slice(5, 8)} ${digits.slice(8, 10)} ${digits.slice(10, 12)}`;
+}
+
+async function notifyTelegram(orderId: string, status: string, photos?: string[]) {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
+  fetch("/api/telegram/notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ orderId, status, photos }),
+  }).catch(() => {});
 }
 
 type Order = {
@@ -37,7 +51,11 @@ type Order = {
   client_phone: string | null;
   before_photos: string[] | null;
   after_photos: string[] | null;
+  payment_method: string | null;
+  payment_status: string;
   created_at: string;
+  accepted_at: string | null;
+  started_at: string | null;
 };
 
 export default function WorkerDashboard() {
@@ -52,6 +70,8 @@ export default function WorkerDashboard() {
   const [photoStep, setPhotoStep]       = useState<"before" | "after" | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling]     = useState(false);
+  const [showCashConfirm, setShowCashConfirm] = useState(false);
+  const [confirmingCash, setConfirmingCash] = useState(false);
 
   const firstName = profile?.name?.split(" ")[0] ?? "Мойщик";
   const initials  = profile ? getInitials(profile.name) : "…";
@@ -129,37 +149,11 @@ export default function WorkerDashboard() {
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id]);
 
-  // Делимся живой геолокацией, пока заказ активен
+  // Делимся живой геолокацией, пока заказ активен.
+  // На native-сборке (Capacitor) работает и в фоне — см. lib/workerLocation.ts.
   useEffect(() => {
     if (!activeOrder || !["accepted", "en_route", "in_progress"].includes(activeOrder.status)) return;
-    if (!("geolocation" in navigator)) return;
-
-    const supabase = createClient();
-    let lastSent = 0;
-
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const now = Date.now();
-        if (now - lastSent < 1500) return; // не чаще ~раза в 1.5 секунды
-        lastSent = now;
-
-        supabase
-          .from("orders")
-          .update({
-            worker_lat: pos.coords.latitude,
-            worker_lng: pos.coords.longitude,
-            worker_speed: pos.coords.speed != null ? pos.coords.speed * 3.6 : null,
-            worker_heading: pos.coords.heading,
-            worker_location_updated_at: new Date().toISOString(),
-          })
-          .eq("id", activeOrder.id)
-          .then();
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
-    );
-
-    return () => navigator.geolocation.clearWatch(watchId);
+    return startWorkerLocationSharing(activeOrder.id);
   }, [activeOrder?.id, activeOrder?.status]);
 
   const toggleOnline = async () => {
@@ -179,7 +173,7 @@ export default function WorkerDashboard() {
 
     const { data, error } = await supabase
       .from("orders")
-      .update({ status: "accepted", worker_id: profile.id, worker_name: profile.name, worker_phone: profile.phone ?? null })
+      .update({ status: "accepted", worker_id: profile.id, worker_name: profile.name, worker_phone: profile.phone ?? null, accepted_at: new Date().toISOString() })
       .eq("id", order.id)
       .eq("status", "pending")
       .select()
@@ -200,6 +194,7 @@ export default function WorkerDashboard() {
       title: "Мойщик найден!",
       body: `${profile.name} принял ваш заказ ${order.order_number} и скоро будет в пути.`,
     });
+    notifyTelegram(order.id, "accepted");
   };
 
   const rejectOrder = (id: string) => setPending(prev => prev.filter(o => o.id !== id));
@@ -236,6 +231,7 @@ export default function WorkerDashboard() {
       body: `Мойщик едет к вам по заказу ${activeOrder.order_number}.`,
       urgent: true,
     });
+    notifyTelegram(activeOrder.id, "en_route");
 
     setShowNav(true);
   };
@@ -243,12 +239,25 @@ export default function WorkerDashboard() {
   const confirmBeforePhotos = async (urls: string[]) => {
     if (!activeOrder) return;
     const supabase = createClient();
+    const startedAt = new Date().toISOString();
     await supabase
       .from("orders")
-      .update({ status: "in_progress", before_photos: urls })
+      .update({ status: "in_progress", before_photos: urls, started_at: startedAt })
       .eq("id", activeOrder.id);
-    setActiveOrder(prev => prev ? { ...prev, status: "in_progress", before_photos: urls } : prev);
+    setActiveOrder(prev => prev ? { ...prev, status: "in_progress", before_photos: urls, started_at: startedAt } : prev);
+    notifyTelegram(activeOrder.id, "in_progress", urls);
     setPhotoStep(null);
+  };
+
+  const confirmCashReceived = async () => {
+    if (!activeOrder) return;
+    setConfirmingCash(true);
+    const supabase = createClient();
+    await supabase.from("orders").update({ payment_status: "verified" }).eq("id", activeOrder.id);
+    setActiveOrder(prev => prev ? { ...prev, payment_status: "verified" } : prev);
+    setConfirmingCash(false);
+    setShowCashConfirm(false);
+    setPhotoStep("after");
   };
 
   const confirmAfterPhotos = async (urls: string[]) => {
@@ -266,6 +275,7 @@ export default function WorkerDashboard() {
       title: "Мойка завершена ✓",
       body: `Заказ ${activeOrder.order_number} выполнен. Сравните фото до/после и оцените мойщика.`,
     });
+    notifyTelegram(activeOrder.id, "completed", urls);
 
     setPhotoStep(null);
     setActiveOrder(null);
@@ -288,11 +298,15 @@ export default function WorkerDashboard() {
       title: "Ищем нового мойщика",
       body: `${profile.name} не может выполнить заказ ${activeOrder.order_number}. Ищем для вас другого мойщика.`,
     });
+    notifyTelegram(activeOrder.id, "cancelled");
 
     setCancelling(false);
     setShowCancelConfirm(false);
     setActiveOrder(null);
   };
+
+  const isManualPaymentOrder = !!activeOrder && MANUAL_PAYMENT_METHODS.includes(activeOrder.payment_method ?? "");
+  const paymentUnverified = isManualPaymentOrder && activeOrder?.payment_status !== "verified";
 
   return (
     <>
@@ -402,6 +416,33 @@ export default function WorkerDashboard() {
                 ))}
               </div>
 
+              {/* Хронология заказа */}
+              <div className="flex items-center gap-3 flex-wrap mb-4 text-[11px] text-slate-400">
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Создан {formatDateTime(activeOrder.created_at)}</span>
+                {activeOrder.accepted_at && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Принят {formatDateTime(activeOrder.accepted_at)}</span>}
+                {activeOrder.started_at && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Начата {formatDateTime(activeOrder.started_at)}</span>}
+              </div>
+
+              {/* Статус оплаты */}
+              <div className={`flex items-center gap-2 mb-4 px-3 py-2 rounded-xl border text-xs font-semibold ${
+                activeOrder.payment_method === "cash"
+                  ? "bg-slate-50 border-slate-200 text-slate-500"
+                  : activeOrder.payment_status === "verified"
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                    : activeOrder.payment_status === "rejected"
+                      ? "bg-red-50 border-red-200 text-red-500"
+                      : "bg-amber-50 border-amber-200 text-amber-600"
+              }`}>
+                <Wallet className="w-3.5 h-3.5 shrink-0" />
+                {activeOrder.payment_method === "cash"
+                  ? "Оплата наличными при завершении"
+                  : activeOrder.payment_status === "verified"
+                    ? `Оплата (${activeOrder.payment_method}) подтверждена`
+                    : activeOrder.payment_status === "rejected"
+                      ? "Оплата отклонена администратором"
+                      : `Оплата (${activeOrder.payment_method}) ожидает подтверждения`}
+              </div>
+
               {/* Превью навигации — открывает полноэкранную карту с маршрутом */}
               {activeOrder.worker_lat && activeOrder.worker_lng && activeOrder.status !== "accepted" && (
                 <button onClick={() => setShowNav(true)}
@@ -429,17 +470,29 @@ export default function WorkerDashboard() {
                   </button>
                 )}
 
-                {/* В пути → начать мойку (через фото "до") */}
+                {/* В пути → начать мойку (через фото "до"), заблокировано если оплата картой/Click/Payme ещё не подтверждена */}
                 {activeOrder.status === "en_route" && (
-                  <button onClick={() => setPhotoStep("before")}
-                    className="w-full h-14 rounded-2xl bg-brand-blue text-white text-base font-bold flex items-center justify-center gap-2 hover:bg-brand-blue/90 active:scale-[0.98] transition-all shadow-md shadow-brand-blue/20">
-                    <Check className="w-5 h-5" /> Начать мойку
-                  </button>
+                  paymentUnverified ? (
+                    <div className="w-full h-14 rounded-2xl bg-amber-50 border-2 border-amber-200 text-amber-700 text-sm font-bold flex items-center justify-center gap-2 text-center px-4">
+                      <AlertCircle className="w-5 h-5 shrink-0" /> Оплата клиента ещё не подтверждена администратором
+                    </div>
+                  ) : (
+                    <button onClick={() => setPhotoStep("before")}
+                      className="w-full h-14 rounded-2xl bg-brand-blue text-white text-base font-bold flex items-center justify-center gap-2 hover:bg-brand-blue/90 active:scale-[0.98] transition-all shadow-md shadow-brand-blue/20">
+                      <Check className="w-5 h-5" /> Начать мойку
+                    </button>
+                  )
                 )}
 
-                {/* Мойка идёт → завершить (через фото "после") */}
+                {/* Мойка идёт → завершить (через фото "после"); для наличных сперва подтверждаем получение денег */}
                 {activeOrder.status === "in_progress" && (
-                  <button onClick={() => setPhotoStep("after")}
+                  <button onClick={() => {
+                    if (activeOrder.payment_method === "cash" && activeOrder.payment_status !== "verified") {
+                      setShowCashConfirm(true);
+                    } else {
+                      setPhotoStep("after");
+                    }
+                  }}
                     className="w-full h-14 rounded-2xl bg-brand-blue text-white text-base font-bold flex items-center justify-center gap-2 hover:bg-brand-blue/90 active:scale-[0.98] transition-all shadow-md shadow-brand-blue/20">
                     <Check className="w-5 h-5" /> Завершить мойку
                   </button>
@@ -490,6 +543,37 @@ export default function WorkerDashboard() {
                   <button onClick={cancelByWorker} disabled={cancelling}
                     className="flex-1 h-11 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-all disabled:opacity-60">
                     {cancelling ? "…" : "Да, отказаться"}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Подтверждение получения наличных перед завершением заказа */}
+        <AnimatePresence>
+          {showCashConfirm && activeOrder && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
+              onClick={() => !confirmingCash && setShowCashConfirm(false)}>
+              <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl text-center">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto mb-4">
+                  <Wallet className="w-6 h-6 text-emerald-600" />
+                </div>
+                <h3 className="font-bold text-slate-900 mb-1">Подтвердите получение наличных</h3>
+                <p className="text-sm text-slate-400 mb-5">
+                  Заказ {activeOrder.order_number} нельзя завершить без подтверждения, что клиент оплатил {(activeOrder.price).toLocaleString("ru-RU")} so&apos;m наличными.
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowCashConfirm(false)} disabled={confirmingCash}
+                    className="flex-1 h-11 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold hover:bg-slate-200 transition-all">
+                    Назад
+                  </button>
+                  <button onClick={confirmCashReceived} disabled={confirmingCash}
+                    className="flex-1 h-11 rounded-xl bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-600 transition-all disabled:opacity-60">
+                    {confirmingCash ? "…" : "Деньги получены"}
                   </button>
                 </div>
               </motion.div>
@@ -602,8 +686,10 @@ export default function WorkerDashboard() {
           destination={activeOrder.client_lat && activeOrder.client_lng ? { lat: activeOrder.client_lat, lng: activeOrder.client_lng } : undefined}
           title={`Заказ ${activeOrder.order_number}`}
           subtitle={activeOrder.location_name || "Адрес не указан"}
+          phone={activeOrder.client_phone}
           trackSelf
           onClose={() => setShowNav(false)}
+          onArrive={() => setShowNav(false)}
         />
       )}
 

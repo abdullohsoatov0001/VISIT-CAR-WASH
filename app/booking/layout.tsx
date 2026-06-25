@@ -1,12 +1,11 @@
 import { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import DashboardLayoutClient from "./DashboardLayoutClient";
 
-export default async function DashboardLayout({ children }: { children: ReactNode }) {
+export default async function BookingLayout({ children }: { children: ReactNode }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  return <DashboardLayoutClient>{children}</DashboardLayoutClient>;
+  return <>{children}</>;
 }

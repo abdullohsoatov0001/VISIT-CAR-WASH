@@ -49,7 +49,7 @@ export default function ResetPasswordPage() {
           <div className="w-8 h-8 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
             <Droplets className="w-4 h-4 text-brand-blue" />
           </div>
-          <span className="font-bold text-slate-900">VISIT<span className="text-brand-blue">.</span></span>
+          <span className="font-bold text-slate-900">Wash<span className="text-brand-blue"> Go</span></span>
         </Link>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>

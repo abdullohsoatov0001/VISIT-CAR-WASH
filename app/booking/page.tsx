@@ -4,9 +4,11 @@ import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { Car, Clock, CreditCard, Check, ChevronRight, ArrowLeft, Droplets, Zap, Shield, Plus, MapPin } from "lucide-react";
+import { Car, Clock, CreditCard, Check, ChevronRight, ArrowLeft, Droplets, Zap, Shield, Plus, MapPin, Copy, Paperclip, AlertCircle } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
+import { compressImage } from "@/lib/image";
+import { COMPANY_PAYMENT_DETAILS, MANUAL_PAYMENT_METHODS } from "@/lib/payment";
 import type { PickedLocation } from "@/components/LocationPicker";
 
 const LocationPicker = dynamic(() => import("@/components/LocationPicker"), { ssr: false });
@@ -58,6 +60,9 @@ export default function BookingPage() {
   const [selectedDate, setSelectedDate] = useState("Today");
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [subscription, setSubscription] = useState<{ id: string; plan: string; washes_left: number } | null>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptError, setReceiptError] = useState("");
+  const [copiedDetail, setCopiedDetail] = useState(false);
 
   // Загружаем реальные сохранённые адреса пользователя (профиль → "Мои адреса")
   // и активную подписку (если есть — можно оплатить мойку моками вместо карты)
@@ -112,8 +117,30 @@ export default function BookingPage() {
   const total = paymentMethod === "subscription" ? addonTotal : service.price + addonTotal;
 
   const toggleAddon = (id: string) => setSelectedAddons((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const isManualPayment = MANUAL_PAYMENT_METHODS.includes(paymentMethod);
+
+  const goNext = () => {
+    if (step === 3 && isManualPayment && !receiptFile) {
+      setReceiptError("Прикрепите фото или скрин чека перевода — без него заказ нельзя оформить");
+      return;
+    }
+    setStep((s) => s + 1);
+  };
+
+  const copyDetail = (value: string) => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopiedDetail(true);
+      setTimeout(() => setCopiedDetail(false), 1500);
+    });
+  };
 
   const handleConfirm = async () => {
+    if (isManualPayment && !receiptFile) {
+      setStep(3);
+      setReceiptError("Прикрепите фото или скрин чека перевода — без него заказ нельзя оформить");
+      return;
+    }
+
     setLoading(true);
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
@@ -124,21 +151,38 @@ export default function BookingPage() {
       return;
     }
 
+    let receiptUrl: string | null = null;
+    if (isManualPayment && receiptFile) {
+      const blob = await compressImage(receiptFile).catch(() => null);
+      const path = `${user.id}/${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage.from("payment-receipts").upload(path, blob ?? receiptFile, { contentType: "image/jpeg" });
+      if (uploadError) {
+        setLoading(false);
+        setReceiptError("Не удалось загрузить чек, попробуйте ещё раз");
+        setStep(3);
+        return;
+      }
+      receiptUrl = supabase.storage.from("payment-receipts").getPublicUrl(path).data.publicUrl;
+    }
+
     const orderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
     const { data: profileData } = await supabase.from("profiles").select("phone").eq("id", user.id).single();
 
     const { error } = await supabase.from("orders").insert({
-      user_id:       user.id,
-      order_number:  orderNumber,
-      service_type:  service.name,
-      status:        "pending",
-      price:         total,
-      location_name: pickedLocation?.address ?? "",
-      notes:         selectedAddons.length > 0 ? selectedAddons.join(", ") : null,
-      scheduled_at:  selectedTime === "Now (ASAP)" ? new Date().toISOString() : null,
-      client_lat:    pickedLocation?.lat ?? null,
-      client_lng:    pickedLocation?.lng ?? null,
-      client_phone:  profileData?.phone ?? null,
+      user_id:        user.id,
+      order_number:   orderNumber,
+      service_type:   service.name,
+      status:         "pending",
+      price:          total,
+      location_name:  pickedLocation?.address ?? "",
+      notes:          selectedAddons.length > 0 ? selectedAddons.join(", ") : null,
+      scheduled_at:   selectedTime === "Now (ASAP)" ? new Date().toISOString() : null,
+      client_lat:     pickedLocation?.lat ?? null,
+      client_lng:     pickedLocation?.lng ?? null,
+      client_phone:   profileData?.phone ?? null,
+      payment_method: paymentMethod,
+      payment_status: isManualPayment ? "awaiting_verification" : paymentMethod === "cash" ? "unpaid" : "verified",
+      receipt_url:    receiptUrl,
     });
 
     if (error) {
@@ -188,7 +232,7 @@ export default function BookingPage() {
           </Link>
           <div className="flex items-center gap-1">
             <Droplets className="w-4 h-4 text-brand-blue" />
-            <span className="font-bold text-slate-900 text-sm">VISIT<span className="text-brand-blue">.</span></span>
+            <span className="font-bold text-slate-900 text-sm">Wash<span className="text-brand-blue"> Go</span></span>
           </div>
           <div className="text-xs text-slate-400">{step + 1}/5</div>
         </div>
@@ -354,14 +398,36 @@ export default function BookingPage() {
                 ))}
               </div>
 
-              {paymentMethod === "card" && (
+              {isManualPayment && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
-                  className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3 shadow-sm">
-                  <input placeholder={t("booking.cardNumber")} className="w-full h-11 px-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 transition-all" />
-                  <div className="grid grid-cols-2 gap-3">
-                    <input placeholder={t("booking.expiryDate")} className="h-11 px-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 transition-all" />
-                    <input placeholder={t("booking.cvv")} className="h-11 px-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 transition-all" />
+                  className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2.5">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t("booking.manualPayInstructions")}</div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-xs text-slate-400">{COMPANY_PAYMENT_DETAILS[paymentMethod]?.label}</div>
+                        <div className="font-mono font-bold text-slate-900">{COMPANY_PAYMENT_DETAILS[paymentMethod]?.value}</div>
+                      </div>
+                      <button onClick={() => copyDetail(COMPANY_PAYMENT_DETAILS[paymentMethod]?.value ?? "")}
+                        className="flex items-center gap-1 h-8 px-3 rounded-lg bg-white border border-slate-200 text-slate-500 text-xs font-medium hover:border-slate-300 transition-all shrink-0">
+                        <Copy className="w-3.5 h-3.5" /> {copiedDetail ? t("common.copied") : t("common.copy")}
+                      </button>
+                    </div>
+                    <div className="text-xs text-slate-500">{t("booking.manualPayAmount")}: <span className="font-bold text-slate-900">{total.toLocaleString()} so'm</span></div>
                   </div>
+
+                  {receiptError && (
+                    <div className="flex items-center gap-2 text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />{receiptError}
+                    </div>
+                  )}
+
+                  <label className="flex items-center gap-2 h-11 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-300 text-slate-600 text-sm font-medium cursor-pointer hover:bg-slate-100 transition-all">
+                    <Paperclip className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{receiptFile ? receiptFile.name : t("booking.attachReceipt")}</span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden"
+                      onChange={(e) => { setReceiptFile(e.target.files?.[0] ?? null); setReceiptError(""); }} />
+                  </label>
                 </motion.div>
               )}
             </motion.div>
@@ -433,7 +499,7 @@ export default function BookingPage() {
               </button>
             )}
             <motion.button whileHover={{ scale: 1.01, boxShadow: "0 0 30px rgba(14,165,233,0.3)" }} whileTap={{ scale: 0.98 }}
-              onClick={step < 4 ? () => setStep(s => s + 1) : handleConfirm}
+              onClick={step < 4 ? goNext : handleConfirm}
               disabled={loading}
               className="flex-1 h-12 rounded-xl bg-brand-blue text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-all shadow-md">
               {loading ? (

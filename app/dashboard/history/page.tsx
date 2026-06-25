@@ -159,7 +159,10 @@ export default function DashboardHistoryPage() {
                   {order.location_name && (
                     <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-slate-300" />{order.location_name}</span>
                   )}
-                  <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-slate-300" />{formatDate(order.created_at)}</span>
+                  <span className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-slate-300" />Заказан {formatDate(order.created_at)}</span>
+                  {order.completed_at && (
+                    <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-slate-300" />Завершён {formatDate(order.completed_at)}</span>
+                  )}
                 </div>
 
                 {hasPhotos && (

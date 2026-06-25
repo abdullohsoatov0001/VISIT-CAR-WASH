@@ -8,7 +8,7 @@ import {
   Check, ArrowRight, Droplets, Car, Users, TrendingUp,
   Sparkles, Award, Smartphone, Bell, CreditCard, Wifi,
   Navigation, Camera, BarChart3, Globe, Lock, ChevronDown,
-  Quote, BadgeCheck
+  Quote, BadgeCheck, ChevronLeft
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { cn } from "@/lib/utils";
@@ -285,6 +285,7 @@ function FeaturesSection() {
 function BeforeAfterSection() {
   const { t } = useLanguage();
   const [position, setPosition] = useState(50);
+  const [touched, setTouched] = useState(false);
 
   return (
     <section className="py-32 relative overflow-hidden bg-white">
@@ -295,28 +296,39 @@ function BeforeAfterSection() {
           <h2 className="text-4xl sm:text-5xl font-black text-slate-900 mb-4">{t("landing.resultsTitle")}</h2>
           <p className="text-slate-400 text-lg">{t("landing.resultsSub")}</p>
         </motion.div>
+
         <motion.div initial={{ opacity: 0, scale: 0.96 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true }}
           transition={{ duration: 0.8, ease: [0.23, 1, 0.32, 1] }}
-          className="relative max-w-3xl mx-auto rounded-3xl overflow-hidden border border-slate-200 shadow-xl" style={{ height: 400 }}>
+          className="relative max-w-3xl mx-auto rounded-3xl overflow-hidden border border-slate-200 shadow-xl select-none"
+          style={{ height: 420 }}>
+
+          {/* BEFORE — слева, тусклый/пыльный */}
           <div className="absolute inset-0 bg-gradient-to-br from-slate-300 to-slate-400 flex items-center justify-center">
-            <div className="text-center"><div className="text-6xl mb-4 opacity-50">🚗</div>
-              <span className="text-slate-500 text-lg font-medium">{t("login.before")}</span></div>
+            <Car className="w-32 h-32 text-slate-500/60" strokeWidth={1.2} />
           </div>
-          <div className="absolute inset-0 bg-gradient-to-br from-[#EEF4FF] to-[#E0ECFF] flex items-center justify-center overflow-hidden"
-            style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}>
-            <div className="absolute inset-0 bg-gradient-to-br from-brand-blue/5 to-brand-purple/5" />
-            <div className="text-center relative z-10">
-              <motion.div animate={{ filter: ["brightness(0.9)", "brightness(1.2)", "brightness(0.9)"] }} transition={{ duration: 3, repeat: Infinity }} className="text-6xl mb-4">✨</motion.div>
-              <span className="text-brand-blue text-lg font-semibold">{t("login.after")}</span>
-            </div>
+
+          {/* AFTER — справа, открывается ползунком */}
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden"
+            style={{ clipPath: `inset(0 0 0 ${position}%)` }}>
+            <div className="absolute inset-0 bg-gradient-to-br from-[#EAF2FF] to-[#DCE9FF]" />
+            <Car className="relative w-32 h-32 text-brand-blue" strokeWidth={1.2} />
           </div>
+
+          {/* Divider + drag handle */}
           <div className="absolute inset-y-0 w-0.5 bg-white shadow-lg z-10" style={{ left: `${position}%` }}>
-            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-white shadow-lg border border-slate-200 flex items-center justify-center cursor-grab">
-              <span className="text-slate-600 text-xs font-black select-none">⟷</span>
-            </div>
+            <motion.div
+              animate={touched ? {} : { x: [0, -8, 0, 8, 0] }}
+              transition={{ duration: 2.2, repeat: Infinity, repeatDelay: 1.4 }}
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-white shadow-lg border border-slate-200 flex items-center justify-center">
+              <ChevronLeft className="w-3 h-3 text-slate-500 -mr-0.5" />
+              <ChevronRight className="w-3 h-3 text-slate-500 -ml-0.5" />
+            </motion.div>
           </div>
-          <input type="range" min={5} max={95} value={position} onChange={(e) => setPosition(Number(e.target.value))}
+
+          <input type="range" min={5} max={95} value={position}
+            onChange={(e) => { setPosition(Number(e.target.value)); setTouched(true); }}
             className="absolute inset-0 w-full h-full opacity-0 cursor-grab z-20" />
+
           <div className="absolute top-4 left-4 z-10">
             <span className="text-xs font-semibold text-slate-500 bg-white/80 px-3 py-1 rounded-full backdrop-blur-sm border border-slate-200">{t("login.before").toUpperCase()}</span>
           </div>

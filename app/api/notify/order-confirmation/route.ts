@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
 
   await sendEmail(
     email,
-    `Заказ ${orderNumber} принят — VISIT`,
+    `Заказ ${orderNumber} принят — Wash Go`,
     orderConfirmationEmail({ orderNumber, serviceType, price: price ?? 0, locationName: locationName ?? "" })
   ).catch((e) => console.error("Order confirmation email failed:", e));
 

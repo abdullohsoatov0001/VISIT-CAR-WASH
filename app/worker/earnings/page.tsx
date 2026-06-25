@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, TrendingUp, Car, Clock, X, Check, ArrowDownToLine } from "lucide-react";
+import { Wallet, TrendingUp, Car, Clock, X, Check, ArrowDownToLine, Receipt, CreditCard } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type Order = {
@@ -19,6 +19,8 @@ type Payout = {
   amount: number;
   status: string;
   created_at: string;
+  card_number?: string | null;
+  receipt_url?: string | null;
 };
 
 function formatPrice(n: number) {
@@ -34,6 +36,8 @@ export default function WorkerEarningsPage() {
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [loading, setLoading] = useState(true);
   const [workerId, setWorkerId] = useState<string | null>(null);
+  const [workerName, setWorkerName] = useState("");
+  const [cardNumber, setCardNumber] = useState("");
 
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -49,7 +53,8 @@ export default function WorkerEarningsPage() {
       if (!user) { setLoading(false); return; }
       setWorkerId(user.id);
 
-      const [{ data: orderRows }, { data: payoutRows }] = await Promise.all([
+      const [{ data: profile }, { data: orderRows }, { data: payoutRows }] = await Promise.all([
+        supabase.from("profiles").select("name, card_number").eq("id", user.id).single(),
         supabase
           .from("orders")
           .select("id, order_number, service_type, price, completed_at, created_at")
@@ -58,17 +63,35 @@ export default function WorkerEarningsPage() {
           .order("completed_at", { ascending: false }),
         supabase
           .from("payout_requests")
-          .select("id, amount, status, created_at")
+          .select("id, amount, status, created_at, card_number, receipt_url")
           .eq("worker_id", user.id)
           .order("created_at", { ascending: false }),
       ]);
 
+      setWorkerName(profile?.name ?? "");
+      setCardNumber(profile?.card_number ?? "");
       setOrders(orderRows ?? []);
       setPayouts(payoutRows ?? []);
       setLoading(false);
     }
     load();
   }, []);
+
+  // Чтобы статус заявки ("В обработке" → "Выплачено"/"Отклонён") обновлялся
+  // сразу, как админ его поменяет, без перезагрузки страницы
+  useEffect(() => {
+    if (!workerId) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`worker-payouts-${workerId}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "payout_requests", filter: `worker_id=eq.${workerId}` },
+        (payload) => {
+          const updated = payload.new as Payout;
+          setPayouts(prev => prev.map(p => p.id === updated.id ? updated : p));
+        })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [workerId]);
 
   const totalEarnings = orders.reduce((s, o) => s + o.price, 0);
   const totalOrders   = orders.length;
@@ -79,6 +102,7 @@ export default function WorkerEarningsPage() {
   const handleWithdraw = async () => {
     setWithdrawError("");
     const amount = Number(withdrawAmount);
+    if (!cardNumber.trim()) { setWithdrawError("Сначала укажите карту для выплат в Профиле"); return; }
     if (!amount || amount <= 0) { setWithdrawError("Введите сумму"); return; }
     if (amount > availableBalance) { setWithdrawError("Сумма больше доступного баланса"); return; }
     if (!workerId) return;
@@ -87,12 +111,32 @@ export default function WorkerEarningsPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("payout_requests")
-      .insert({ worker_id: workerId, amount })
-      .select("id, amount, status, created_at")
+      .insert({ worker_id: workerId, amount, card_number: cardNumber.trim() })
+      .select("id, amount, status, created_at, card_number, receipt_url")
       .single();
-    setSubmitting(false);
 
-    if (data) setPayouts(prev => [data, ...prev]);
+    if (data) {
+      setPayouts(prev => [data, ...prev]);
+
+      const { data: admins } = await supabase.from("profiles").select("id").eq("role", "ADMIN");
+      if (admins && admins.length > 0) {
+        await supabase.from("notifications").insert(
+          admins.map((a) => ({
+            user_id: a.id,
+            type: "system",
+            title: "Запрос на вывод средств",
+            body: `${workerName || "Мойщик"} хочет вывести ${formatPrice(amount)} so'm. Нужно отправить деньги вручную и отметить заявку оплаченной.`,
+          }))
+        );
+      }
+      fetch("/api/notify/payout-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerName: workerName || "Мойщик", amount }),
+      }).catch(() => {});
+    }
+
+    setSubmitting(false);
     setWithdrawn(true);
     setWithdrawAmount("");
     setTimeout(() => { setWithdrawn(false); setShowWithdraw(false); }, 1500);
@@ -207,12 +251,20 @@ export default function WorkerEarningsPage() {
                   <div className="text-sm font-semibold text-slate-900">{formatPrice(p.amount)} so'm</div>
                   <div className="text-xs text-slate-400">{formatDate(p.created_at)}</div>
                 </div>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg border ${
-                  p.status === "paid" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
-                  p.status === "rejected" ? "bg-red-50 text-red-500 border-red-200" :
-                  "bg-orange-50 text-orange-600 border-orange-200"}`}>
-                  {p.status === "paid" ? "Выплачено" : p.status === "rejected" ? "Отклонён" : "В обработке"}
-                </span>
+                <div className="flex items-center gap-2">
+                  {p.status === "paid" && p.receipt_url && (
+                    <a href={p.receipt_url} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs font-semibold text-brand-blue hover:underline">
+                      <Receipt className="w-3.5 h-3.5" /> Чек
+                    </a>
+                  )}
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg border ${
+                    p.status === "paid" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
+                    p.status === "rejected" ? "bg-red-50 text-red-500 border-red-200" :
+                    "bg-orange-50 text-orange-600 border-orange-200"}`}>
+                    {p.status === "paid" ? "Выплачено" : p.status === "rejected" ? "Отклонён" : "В обработке"}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -240,6 +292,14 @@ export default function WorkerEarningsPage() {
               ) : (
                 <>
                   <p className="text-xs text-slate-400 mb-3">Доступно: {formatPrice(availableBalance)} so'm</p>
+
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 mb-3">
+                    <CreditCard className="w-4 h-4 text-slate-400 shrink-0" />
+                    {cardNumber
+                      ? <span className="text-sm text-slate-700">{cardNumber}</span>
+                      : <a href="/worker/profile" className="text-sm text-brand-blue font-semibold">Укажите карту в Профиле →</a>}
+                  </div>
+
                   {withdrawError && (
                     <div className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{withdrawError}</div>
                   )}

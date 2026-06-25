@@ -9,7 +9,7 @@ import "leaflet-routing-machine";
 import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
 import "leaflet-rotate";
 import "leaflet-polylinedecorator";
-import { X, ExternalLink, Navigation2, Car } from "lucide-react";
+import { X, ExternalLink, Navigation2, Car, Phone } from "lucide-react";
 import { distanceKm } from "@/lib/geo";
 import { playArrivalChime } from "@/lib/sound";
 import { speak, maneuverText } from "@/lib/speech";
@@ -233,6 +233,8 @@ function SmoothDriver({
   return null;
 }
 
+const STALE_AFTER_SEC = 90;
+
 export default function NavigationView({
   worker,
   destination,
@@ -240,8 +242,11 @@ export default function NavigationView({
   subtitle,
   speed,
   heading,
+  updatedAt,
+  phone,
   trackSelf = false,
   onClose,
+  onArrive,
 }: {
   worker: Point;
   destination?: Point;
@@ -249,8 +254,11 @@ export default function NavigationView({
   subtitle?: string;
   speed?: number | null;
   heading?: number | null;
+  updatedAt?: string | null;
+  phone?: string | null;
   trackSelf?: boolean;
   onClose: () => void;
+  onArrive?: () => void;
 }) {
   const [route, setRoute] = useState<{ km: number; mins: number } | null>(null);
   const [instructions, setInstructions] = useState<RouteInstruction[]>([]);
@@ -261,6 +269,13 @@ export default function NavigationView({
   const [liveHeading, setLiveHeading] = useState<number | null>(null);
   const arrivedRef = useRef(false);
   const spokenStepRef = useRef(-1);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (trackSelf || !updatedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, [trackSelf, updatedAt]);
 
   // На странице мойщика — собственный живой GPS без задержки на БД/Realtime
   useEffect(() => {
@@ -281,6 +296,13 @@ export default function NavigationView({
   const currentSpeed = trackSelf ? liveSpeed : speed ?? null;
   const currentHeading = trackSelf ? liveHeading : heading ?? null;
 
+  const ageSec = !trackSelf && updatedAt ? Math.max(0, Math.round((now - new Date(updatedAt).getTime()) / 1000)) : null;
+  const isStale = ageSec != null && ageSec > STALE_AFTER_SEC;
+  const ageLabel = ageSec == null ? null
+    : ageSec < 60 ? `${ageSec} сек назад`
+    : ageSec < 3600 ? `${Math.round(ageSec / 60)} мин назад`
+    : `${Math.round(ageSec / 3600)} ч назад`;
+
   // Звук + голос прибытия
   useEffect(() => {
     if (!destination || arrivedRef.current) return;
@@ -289,8 +311,9 @@ export default function NavigationView({
       arrivedRef.current = true;
       playArrivalChime();
       if (trackSelf) speak("Вы прибыли к месту назначения");
+      if (onArrive) setTimeout(onArrive, 1800);
     }
-  }, [currentPos.lat, currentPos.lng, destination?.lat, destination?.lng, trackSelf]);
+  }, [currentPos.lat, currentPos.lng, destination?.lat, destination?.lng, trackSelf, onArrive]);
 
   // Текущий шаг маршрута (поворот направо/налево/и т.д.)
   useEffect(() => {
@@ -330,9 +353,17 @@ export default function NavigationView({
           <div className="font-bold text-slate-900 text-sm truncate">{title}</div>
           {subtitle && <div className="text-xs text-slate-400 truncate">{subtitle}</div>}
         </div>
-        <button onClick={onClose} className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-all flex-shrink-0">
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {phone && (
+            <a href={`tel:${phone}`}
+              className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 hover:bg-emerald-100 transition-all">
+              <Phone className="w-4 h-4" />
+            </a>
+          )}
+          <button onClick={onClose} className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-all">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 relative">
@@ -366,14 +397,16 @@ export default function NavigationView({
           {!trackSelf && route && (
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.25 }}
-              className="absolute top-3 left-3 right-3 z-[1000] bg-slate-900 text-white rounded-2xl px-4 py-3.5 shadow-2xl flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500 flex items-center justify-center flex-shrink-0 shadow-lg">
+              className={`absolute top-3 left-3 right-3 z-[1000] text-white rounded-2xl px-4 py-3.5 shadow-2xl flex items-center gap-3.5 ${isStale ? "bg-amber-600" : "bg-slate-900"}`}>
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg ${isStale ? "bg-amber-400" : "bg-emerald-500"}`}>
                 <Car className="w-6 h-6 text-white" />
               </div>
               <div className="min-w-0">
-                <div className="text-base font-bold truncate">{title}</div>
-                <div className="text-xs text-white/60 mt-0.5">
-                  Будет у вас через ~{route.mins} мин · {route.km < 1 ? `${Math.round(route.km * 1000)} м` : `${route.km.toFixed(1)} км`}
+                <div className="text-base font-bold truncate">{isStale ? "Связь с мойщиком прервалась" : title}</div>
+                <div className="text-xs text-white/70 mt-0.5">
+                  {isStale
+                    ? `Последние данные — ${ageLabel}. Точка на карте может быть неактуальна.`
+                    : `Будет у вас через ~${route.mins} мин · ${route.km < 1 ? `${Math.round(route.km * 1000)} м` : `${route.km.toFixed(1)} км`}`}
                 </div>
               </div>
             </motion.div>

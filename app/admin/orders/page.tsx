@@ -17,9 +17,14 @@ type Order = {
   price: number;
   status: string;
   created_at: string;
+  accepted_at: string | null;
+  started_at: string | null;
   notes: string | null;
   scheduled_at: string | null;
   completed_at: string | null;
+  payment_method: string | null;
+  payment_status: string;
+  receipt_url: string | null;
   user_rating: number | null;
   worker_rating: number | null;
   review_text: string | null;
@@ -59,7 +64,7 @@ export default function AdminOrdersPage() {
     async function load() {
       const { data: orderRows } = await supabase
         .from("orders")
-        .select("id, order_number, user_id, service_type, worker_name, location_name, price, status, created_at, notes, scheduled_at, completed_at, user_rating, worker_rating, review_text, before_photos, after_photos")
+        .select("id, order_number, user_id, service_type, worker_name, location_name, price, status, created_at, accepted_at, started_at, notes, scheduled_at, completed_at, payment_method, payment_status, receipt_url, user_rating, worker_rating, review_text, before_photos, after_photos")
         .order("created_at", { ascending: false })
         .limit(100);
 
@@ -206,7 +211,29 @@ export default function AdminOrdersPage() {
                 <div className="flex justify-between"><span className="text-slate-400">Услуга</span><span className="font-medium text-slate-900">{selected.service_type}</span></div>
                 <div className="flex justify-between"><span className="text-slate-400">Адрес</span><span className="font-medium text-slate-900 text-right">{selected.location_name || "—"}</span></div>
                 <div className="flex justify-between"><span className="text-slate-400">Сумма</span><span className="font-bold text-slate-900">{selected.price.toLocaleString()} so'm</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Способ оплаты</span><span className="font-medium text-slate-900">{selected.payment_method ?? "—"}</span></div>
+                <div className="flex justify-between items-center"><span className="text-slate-400">Статус оплаты</span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg border ${
+                    selected.payment_status === "verified" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
+                    selected.payment_status === "rejected" ? "bg-red-50 text-red-500 border-red-200" :
+                    selected.payment_status === "awaiting_verification" ? "bg-amber-50 text-amber-600 border-amber-200" :
+                    "bg-slate-50 text-slate-500 border-slate-200"
+                  }`}>{selected.payment_status}</span>
+                </div>
+                {selected.receipt_url && (
+                  <div className="flex justify-between items-center"><span className="text-slate-400">Чек оплаты</span>
+                    <a href={selected.receipt_url} target="_blank" rel="noopener noreferrer">
+                      <img src={selected.receipt_url} alt="Чек" className="w-10 h-10 rounded-lg object-cover border border-slate-200" />
+                    </a>
+                  </div>
+                )}
                 <div className="flex justify-between"><span className="text-slate-400">Создан</span><span className="font-medium text-slate-900">{new Date(selected.created_at).toLocaleString("ru-RU")}</span></div>
+                {selected.accepted_at && (
+                  <div className="flex justify-between"><span className="text-slate-400">Принят мойщиком</span><span className="font-medium text-slate-900">{new Date(selected.accepted_at).toLocaleString("ru-RU")}</span></div>
+                )}
+                {selected.started_at && (
+                  <div className="flex justify-between"><span className="text-slate-400">Начата мойка</span><span className="font-medium text-slate-900">{new Date(selected.started_at).toLocaleString("ru-RU")}</span></div>
+                )}
                 {selected.completed_at && (
                   <div className="flex justify-between"><span className="text-slate-400">Завершён</span><span className="font-medium text-slate-900">{new Date(selected.completed_at).toLocaleString("ru-RU")}</span></div>
                 )}

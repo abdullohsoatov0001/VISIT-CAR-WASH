@@ -100,7 +100,7 @@ export default function LoginPage() {
             </div>
           </motion.div>
         </div>
-        <div className="absolute bottom-8 left-8 text-slate-400 text-sm">© 2025 VISIT Technologies</div>
+        <div className="absolute bottom-8 left-8 text-slate-400 text-sm">© 2025 Wash Go Technologies</div>
       </div>
 
       {/* Right form */}
@@ -111,12 +111,12 @@ export default function LoginPage() {
             <div className="w-9 h-9 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
               <Droplets className="w-5 h-5 text-brand-blue" />
             </div>
-            <span className="text-lg font-bold text-slate-900">VISIT<span className="text-brand-blue">.</span></span>
+            <span className="text-lg font-bold text-slate-900">Wash<span className="text-brand-blue"> Go</span></span>
           </Link>
 
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <h1 className="text-3xl font-black text-slate-900 mb-2">Добро пожаловать</h1>
-            <p className="text-slate-400 mb-8">Войдите в свой аккаунт VISIT</p>
+            <p className="text-slate-400 mb-8">Войдите в свой аккаунт Wash Go</p>
 
             {/* Error */}
             {error && (

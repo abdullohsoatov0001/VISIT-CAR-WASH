@@ -22,6 +22,17 @@ export function formatTime(minutes: number): string {
   return m > 0 ? `${h}h ${m}min` : `${h}h`;
 }
 
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+export function timeAgo(iso: string): string {
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 60) return `${mins} мин`;
+  if (mins < 1440) return `${Math.floor(mins / 60)} ч`;
+  return `${Math.floor(mins / 1440)} дн`;
+}
+
 export function getInitials(name: string): string {
   return name
     .split(" ")

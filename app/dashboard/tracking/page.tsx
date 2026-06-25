@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, Phone, Check, Package, RefreshCw, X, AlertTriangle, Navigation } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { formatEta } from "@/lib/geo";
+import { formatDateTime } from "@/lib/utils";
 import Link from "next/link";
 
 const NavigationView = dynamic(() => import("@/components/NavigationView"), { ssr: false });
@@ -26,17 +27,23 @@ type ActiveOrder = {
   worker_lng: number | null;
   worker_speed: number | null;
   worker_heading: number | null;
+  worker_location_updated_at: string | null;
   client_lat: number | null;
   client_lng: number | null;
   created_at: string;
+  accepted_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
 };
 
-const statusSteps = [
-  { key: "pending",     label: "Заказ создан",     desc: "Ищем мойщика рядом с вами",   icon: "🔍" },
-  { key: "accepted",    label: "Мойщик назначен",   desc: "Мойщик едет к вам",           icon: "🚗" },
+const STALE_AFTER_SEC = 90;
+
+const statusSteps: { key: string; label: string; desc: string; icon: string; timeField?: "created_at" | "accepted_at" | "started_at" | "completed_at" }[] = [
+  { key: "pending",     label: "Заказ создан",     desc: "Ищем мойщика рядом с вами",   icon: "🔍", timeField: "created_at" },
+  { key: "accepted",    label: "Мойщик назначен",   desc: "Мойщик едет к вам",           icon: "🚗", timeField: "accepted_at" },
   { key: "en_route",    label: "Мойщик в пути",     desc: "Скоро будет на месте",         icon: "📍" },
-  { key: "in_progress", label: "Мойка идёт",        desc: "Ваш автомобиль моется",        icon: "✨" },
-  { key: "completed",   label: "Готово!",            desc: "Мойка завершена успешно",     icon: "🎉" },
+  { key: "in_progress", label: "Мойка идёт",        desc: "Ваш автомобиль моется",        icon: "✨", timeField: "started_at" },
+  { key: "completed",   label: "Готово!",            desc: "Мойка завершена успешно",     icon: "🎉", timeField: "completed_at" },
 ];
 
 function formatPrice(n: number) { return n.toLocaleString("ru-RU"); }
@@ -53,6 +60,12 @@ export default function DashboardTrackingPage() {
   const [showCancel, setShowCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [showNav, setShowNav] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     const supabase = createClient();
@@ -66,7 +79,7 @@ export default function DashboardTrackingPage() {
 
       const { data } = await supabase
         .from("orders")
-        .select("id, order_number, service_type, status, price, location_name, worker_name, worker_phone, worker_lat, worker_lng, worker_speed, worker_heading, client_lat, client_lng, created_at")
+        .select("id, order_number, service_type, status, price, location_name, worker_name, worker_phone, worker_lat, worker_lng, worker_speed, worker_heading, worker_location_updated_at, client_lat, client_lng, created_at, accepted_at, started_at, completed_at")
         .eq("user_id", user.id)
         .not("status", "in", '("completed","cancelled")')
         .order("created_at", { ascending: false })
@@ -133,6 +146,15 @@ export default function DashboardTrackingPage() {
 
   const currentStep = statusSteps.findIndex(s => s.key === order.status);
   const canCancel = CANCELLABLE_STATUSES.includes(order.status);
+
+  const ageSec = order.worker_location_updated_at
+    ? Math.max(0, Math.round((now - new Date(order.worker_location_updated_at).getTime()) / 1000))
+    : null;
+  const isStale = ageSec != null && ageSec > STALE_AFTER_SEC;
+  const ageLabel = ageSec == null ? null
+    : ageSec < 60 ? `${ageSec} сек назад`
+    : ageSec < 3600 ? `${Math.round(ageSec / 60)} мин назад`
+    : `${Math.round(ageSec / 3600)} ч назад`;
 
   const handleCancel = async () => {
     setCancelling(true);
@@ -210,18 +232,22 @@ export default function DashboardTrackingPage() {
       {LIVE_MAP_STATUSES.includes(order.status) && order.worker_lat && order.worker_lng && (
         <motion.button initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}
           onClick={() => setShowNav(true)}
-          className="w-full bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex items-center justify-between hover:border-brand-blue/30 transition-all">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <Navigation className="w-4 h-4 text-brand-blue" />
-            {order.client_lat && order.client_lng
-              ? (() => {
-                  const eta = formatEta(order.worker_lat!, order.worker_lng!, order.client_lat!, order.client_lng!);
-                  return `${eta.km} · ~${eta.mins} мин до вас`;
-                })()
-              : "Живая GPS-локация мойщика"}
+          className={`w-full bg-white border rounded-2xl p-4 shadow-sm flex items-center justify-between transition-all ${
+            isStale ? "border-amber-200 hover:border-amber-300" : "border-slate-200 hover:border-brand-blue/30"
+          }`}>
+          <div className={`flex items-center gap-2 text-xs font-semibold ${isStale ? "text-amber-600" : "text-slate-500"}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isStale ? "bg-amber-500" : "bg-emerald-500 animate-pulse"}`} />
+            <Navigation className={`w-4 h-4 ${isStale ? "text-amber-500" : "text-brand-blue"}`} />
+            {isStale
+              ? `Связь с мойщиком прервалась · обновлено ${ageLabel}`
+              : order.client_lat && order.client_lng
+                ? (() => {
+                    const eta = formatEta(order.worker_lat!, order.worker_lng!, order.client_lat!, order.client_lng!);
+                    return `${eta.km} · ~${eta.mins} мин до вас`;
+                  })()
+                : "Живая GPS-локация мойщика"}
           </div>
-          <span className="text-xs text-brand-blue font-semibold">Открыть карту →</span>
+          <span className={`text-xs font-semibold ${isStale ? "text-amber-600" : "text-brand-blue"}`}>Открыть карту →</span>
         </motion.button>
       )}
 
@@ -263,6 +289,9 @@ export default function DashboardTrackingPage() {
                   </div>
                   {active && (
                     <div className="text-xs text-slate-400 mt-0.5">{step.desc}</div>
+                  )}
+                  {step.timeField && order[step.timeField] && (
+                    <div className="text-[11px] text-slate-300 mt-0.5">{formatDateTime(order[step.timeField]!)}</div>
                   )}
                 </div>
               </div>
@@ -318,6 +347,8 @@ export default function DashboardTrackingPage() {
           subtitle={`Заказ ${order.order_number}`}
           speed={order.worker_speed}
           heading={order.worker_heading}
+          updatedAt={order.worker_location_updated_at}
+          phone={order.worker_phone}
           onClose={() => setShowNav(false)}
         />
       )}

@@ -11,20 +11,20 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "VISIT — Premium Mobile Car Wash",
+  title: "Wash Go — Premium Mobile Car Wash",
   description: "Your car, cleaned wherever you are. Book a premium mobile car wash in minutes. Real-time tracking. Professional detailers at your door.",
   keywords: ["mobile car wash", "car detailing", "on-demand car wash", "car care"],
-  authors: [{ name: "VISIT" }],
-  creator: "VISIT",
+  authors: [{ name: "Wash Go" }],
+  creator: "Wash Go",
   openGraph: {
-    title: "VISIT — Premium Mobile Car Wash",
+    title: "Wash Go — Premium Mobile Car Wash",
     description: "Your car, cleaned wherever you are.",
     type: "website",
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "VISIT — Premium Mobile Car Wash",
+    title: "Wash Go — Premium Mobile Car Wash",
     description: "Your car, cleaned wherever you are.",
   },
   icons: {

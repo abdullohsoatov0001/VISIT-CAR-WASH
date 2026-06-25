@@ -25,7 +25,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       const { data } = await supabase
         .from("profiles")
-        .select("id, name, role, phone, avatar_url, is_active, loyalty_points, loyalty_tier, total_washes, total_spent")
+        .select("id, name, role, phone, avatar_url, is_active, loyalty_points, loyalty_tier, total_washes, total_spent, push_notifications_enabled, sms_notifications_enabled, card_number")
         .eq("id", user.id)
         .single();
 
@@ -37,6 +37,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
         loyalty_tier:   data.loyalty_tier   ?? "Bronze",
         total_washes:   data.total_washes   ?? 0,
         total_spent:    data.total_spent    ?? 0,
+        push_notifications_enabled: data.push_notifications_enabled ?? true,
+        sms_notifications_enabled:  data.sms_notifications_enabled  ?? true,
+        card_number: data.card_number ?? null,
       } : null);
       setLoading(false);
     }

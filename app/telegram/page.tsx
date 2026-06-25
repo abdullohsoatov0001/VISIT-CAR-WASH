@@ -2,10 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronRight, ArrowLeft, Droplets } from "lucide-react";
+import { Check, ChevronRight, ArrowLeft, Droplets, Locate } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { getClientCoords } from "@/lib/geo";
+
+declare global {
+  interface Window {
+    Telegram?: { WebApp?: { ready: () => void; expand: () => void; setHeaderColor: (c: string) => void; setBackgroundColor: (c: string) => void } };
+  }
+}
 
 const servicePrices: Record<string, number> = { express: 49000, premium: 99000, detail: 199000, eco: 59000 };
 
@@ -16,17 +22,14 @@ const services = [
   { id: "eco", icon: "🌿", name: "Eco", price: "59 000", time: "~45 min" },
 ];
 
-const locations = [
-  { id: "home", label: "Home", address: "Yunusobod, 12-house" },
-  { id: "office", label: "Office", address: "Amir Temur 107B" },
-  { id: "custom", label: "Other location", address: "Enter address" },
-];
+type SavedAddress = { id: string; label: string; address: string; lat: number; lng: number; is_default: boolean };
 
 export default function TelegramMiniApp() {
   const { t } = useLanguage();
   const [step, setStep] = useState(0);
   const [selected, setSelected] = useState("premium");
-  const [location, setLocation] = useState("home");
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [location, setLocation] = useState("current");
   const [time, setTime] = useState("Now");
   const [booked, setBooked] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -35,11 +38,36 @@ export default function TelegramMiniApp() {
   const [error, setError] = useState("");
 
   const service = services.find(s => s.id === selected)!;
+  const locations = [...savedAddresses, { id: "current", label: "Текущее местоположение", address: "Определим по GPS", lat: 0, lng: 0, is_default: false }];
+
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-web-app.js";
+    script.async = true;
+    script.onload = () => {
+      const tg = window.Telegram?.WebApp;
+      if (!tg) return;
+      tg.ready();
+      tg.expand();
+      tg.setHeaderColor("#0EA5E9");
+      tg.setBackgroundColor("#F0F7FF");
+    };
+    document.body.appendChild(script);
+    return () => { document.body.removeChild(script); };
+  }, []);
 
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) setNeedsLogin(true);
+      if (!session) { setNeedsLogin(true); return; }
+      supabase.from("addresses").select("id, label, address, lat, lng, is_default")
+        .eq("user_id", session.user.id).order("is_default", { ascending: false })
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setSavedAddresses(data);
+            setLocation(data.find(a => a.is_default)?.id ?? data[0].id);
+          }
+        });
     });
   }, []);
 
@@ -57,10 +85,10 @@ export default function TelegramMiniApp() {
     }
 
     const newOrderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
-    const loc = locations.find(l => l.id === location);
-    const [coords, profileRes] = await Promise.all([
-      getClientCoords(),
+    const chosen = savedAddresses.find(l => l.id === location);
+    const [profileRes, coords] = await Promise.all([
       supabase.from("profiles").select("phone").eq("id", user.id).single(),
+      chosen ? Promise.resolve(null) : getClientCoords(),
     ]);
 
     const { error: err } = await supabase.from("orders").insert({
@@ -69,10 +97,10 @@ export default function TelegramMiniApp() {
       service_type: `${service.name} Wash`,
       status: "pending",
       price: servicePrices[service.id],
-      location_name: loc?.address ?? "",
+      location_name: chosen?.address ?? "Текущее местоположение",
       scheduled_at: time === "Now (ASAP)" ? new Date().toISOString() : null,
-      client_lat: coords?.lat ?? null,
-      client_lng: coords?.lng ?? null,
+      client_lat: chosen?.lat ?? coords?.lat ?? null,
+      client_lng: chosen?.lng ?? coords?.lng ?? null,
       client_phone: profileRes.data?.phone ?? null,
     });
 
@@ -126,7 +154,7 @@ export default function TelegramMiniApp() {
       <div className="min-h-screen bg-[#F0F7FF] flex items-center justify-center px-4 text-center">
         <div>
           <div className="text-4xl mb-4">🔒</div>
-          <h2 className="text-lg font-black text-slate-900 mb-2">Войдите в аккаунт VISIT</h2>
+          <h2 className="text-lg font-black text-slate-900 mb-2">Войдите в аккаунт Wash Go</h2>
           <p className="text-sm text-slate-500 mb-6">Чтобы оформить заказ через Telegram, нужно войти в свой аккаунт.</p>
           <a href="/login" className="inline-block px-6 py-3 rounded-xl bg-brand-blue text-white font-bold text-sm shadow-md">
             Войти
@@ -149,7 +177,7 @@ export default function TelegramMiniApp() {
           <Droplets className="w-4 h-4 text-white" />
         </div>
         <div>
-          <div className="text-sm font-bold text-white">VISIT Car Wash</div>
+          <div className="text-sm font-bold text-white">Wash Go</div>
           <div className="text-xs text-white/60">Bot</div>
         </div>
       </div>
@@ -201,6 +229,7 @@ export default function TelegramMiniApp() {
                 {locations.map((loc) => (
                   <button key={loc.id} onClick={() => setLocation(loc.id)}
                     className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all text-left ${location === loc.id ? "bg-brand-blue/10 border-brand-blue/40" : "bg-white border-slate-200 shadow-sm"}`}>
+                    {loc.id === "current" && <Locate className="w-4 h-4 text-brand-blue flex-shrink-0" />}
                     <div className="flex-1">
                       <div className="text-sm font-bold text-slate-900">{loc.label}</div>
                       <div className="text-xs text-slate-400">{loc.address}</div>

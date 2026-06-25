@@ -144,7 +144,7 @@ function VerifyForm() {
           <div className="w-9 h-9 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
             <Droplets className="w-5 h-5 text-brand-blue" />
           </div>
-          <span className="text-lg font-bold text-slate-900">VISIT<span className="text-brand-blue">.</span></span>
+          <span className="text-lg font-bold text-slate-900">Wash<span className="text-brand-blue"> Go</span></span>
         </a>
 
         <AnimatePresence mode="wait">

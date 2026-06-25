@@ -51,14 +51,14 @@ export default function NotFound() {
           </Link>
         </motion.div>
 
-        {/* VISIT branding */}
+        {/* Wash Go branding */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4 }}
           className="mt-12 flex items-center justify-center gap-2 text-white/20">
           <Droplets className="w-3.5 h-3.5" />
-          <span className="text-xs font-semibold tracking-widest uppercase">VISIT Car Wash</span>
+          <span className="text-xs font-semibold tracking-widest uppercase">Wash Go</span>
         </motion.div>
       </div>
     </div>

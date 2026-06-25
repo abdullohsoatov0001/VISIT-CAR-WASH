@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
   sendEmail(
     email.trim().toLowerCase(),
-    "Доступ к личному кабинету VISIT",
+    "Доступ к личному кабинету Wash Go",
     workerWelcomeEmail({ name: name.trim(), email: email.trim().toLowerCase(), password })
   ).catch((e) => console.error("Welcome email failed:", e));
 

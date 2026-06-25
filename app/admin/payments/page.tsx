@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { Bell, ArrowUpRight, ArrowDownRight, CreditCard, TrendingUp, Check, X, Wallet } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Bell, ArrowUpRight, ArrowDownRight, CreditCard, TrendingUp, Check, X, Wallet, Paperclip, AlertCircle, User } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { debounce } from "@/lib/utils";
+import { compressImage } from "@/lib/image";
 
 type Tx = {
   id: string;
@@ -17,12 +18,25 @@ type Tx = {
   client_name?: string;
 };
 
+type PendingPayment = {
+  id: string;
+  order_number: string;
+  user_id: string;
+  price: number;
+  payment_method: string;
+  receipt_url: string | null;
+  created_at: string;
+  client_name?: string;
+};
+
 type Payout = {
   id: string;
   worker_id: string;
   amount: number;
   status: string;
   created_at: string;
+  card_number: string | null;
+  receipt_url?: string | null;
   worker_name?: string;
 };
 
@@ -34,13 +48,18 @@ export default function AdminPaymentsPage() {
   const { t } = useLanguage();
   const [txs, setTxs] = useState<Tx[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [payingPayout, setPayingPayout] = useState<Payout | null>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptError, setReceiptError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
 
     async function load() {
-      const [{ data: rows }, { data: payoutRows }] = await Promise.all([
+      const [{ data: rows }, { data: payoutRows }, { data: pendingRows }] = await Promise.all([
         supabase
           .from("orders")
           .select("id, order_number, user_id, price, status, created_at")
@@ -49,12 +68,17 @@ export default function AdminPaymentsPage() {
           .limit(30),
         supabase
           .from("payout_requests")
-          .select("id, worker_id, amount, status, created_at")
+          .select("id, worker_id, amount, status, created_at, card_number, receipt_url")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("orders")
+          .select("id, order_number, user_id, price, payment_method, receipt_url, created_at")
+          .eq("payment_status", "awaiting_verification")
           .order("created_at", { ascending: false }),
       ]);
 
       const orders = rows ?? [];
-      const allUserIds = Array.from(new Set([...orders.map(o => o.user_id), ...(payoutRows ?? []).map(p => p.worker_id)]));
+      const allUserIds = Array.from(new Set([...orders.map(o => o.user_id), ...(payoutRows ?? []).map(p => p.worker_id), ...(pendingRows ?? []).map(p => p.user_id)]));
       let names: Record<string, string> = {};
       if (allUserIds.length > 0) {
         const { data: profiles } = await supabase.from("profiles").select("id, name").in("id", allUserIds);
@@ -62,6 +86,7 @@ export default function AdminPaymentsPage() {
       }
       setTxs(orders.map(o => ({ ...o, client_name: names[o.user_id] ?? "—" })));
       setPayouts((payoutRows ?? []).map(p => ({ ...p, worker_name: names[p.worker_id] ?? "—" })));
+      setPendingPayments((pendingRows ?? []).map(p => ({ ...p, client_name: names[p.user_id] ?? "—" })));
       setLoading(false);
     }
 
@@ -77,10 +102,69 @@ export default function AdminPaymentsPage() {
     };
   }, []);
 
-  const processPayout = async (id: string, status: "paid" | "rejected") => {
-    setPayouts(prev => prev.map(p => p.id === id ? { ...p, status } : p));
+  const processPayout = async (id: string, status: "paid" | "rejected", receiptUrl?: string) => {
+    const payout = payouts.find(p => p.id === id);
+    setPayouts(prev => prev.map(p => p.id === id ? { ...p, status, receipt_url: receiptUrl ?? p.receipt_url } : p));
     const supabase = createClient();
-    await supabase.from("payout_requests").update({ status, processed_at: new Date().toISOString() }).eq("id", id);
+    await supabase.from("payout_requests").update({
+      status,
+      processed_at: new Date().toISOString(),
+      ...(receiptUrl ? { receipt_url: receiptUrl } : {}),
+    }).eq("id", id);
+
+    if (payout) {
+      await supabase.from("notifications").insert({
+        user_id: payout.worker_id,
+        type: "system",
+        title: status === "paid" ? "Деньги отправлены" : "Запрос на вывод отклонён",
+        body: status === "paid"
+          ? `Вам отправлено ${payout.amount.toLocaleString("ru-RU")} so'm.${receiptUrl ? " Чек приложен." : ""}`
+          : `Запрос на вывод ${payout.amount.toLocaleString("ru-RU")} so'm отклонён. Свяжитесь с администратором.`,
+      });
+    }
+  };
+
+  const verifyPayment = async (id: string, decision: "verified" | "rejected") => {
+    const payment = pendingPayments.find(p => p.id === id);
+    setPendingPayments(prev => prev.filter(p => p.id !== id));
+    const supabase = createClient();
+    await supabase.from("orders").update({ payment_status: decision }).eq("id", id);
+
+    if (payment) {
+      await supabase.from("notifications").insert({
+        user_id: payment.user_id,
+        type: "system",
+        title: decision === "verified" ? "Оплата подтверждена" : "Оплата отклонена",
+        body: decision === "verified"
+          ? `Ваш платёж по заказу ${payment.order_number} подтверждён.`
+          : `Платёж по заказу ${payment.order_number} отклонён — проверьте чек и свяжитесь с поддержкой.`,
+      });
+    }
+  };
+
+  const confirmPaid = async () => {
+    if (!payingPayout) return;
+    if (!receiptFile) { setReceiptError("Прикрепите фото или скрин чека — без него заявку нельзя закрыть"); return; }
+
+    setReceiptError("");
+    setUploading(true);
+    const supabase = createClient();
+
+    const blob = await compressImage(receiptFile).catch(() => null);
+    const path = `${payingPayout.id}/${Date.now()}.jpg`;
+    const { error } = await supabase.storage.from("payout-receipts").upload(path, blob ?? receiptFile, { contentType: "image/jpeg" });
+
+    if (error) {
+      setUploading(false);
+      setReceiptError("Не удалось загрузить чек, попробуйте ещё раз");
+      return;
+    }
+
+    const receiptUrl = supabase.storage.from("payout-receipts").getPublicUrl(path).data.publicUrl;
+    await processPayout(payingPayout.id, "paid", receiptUrl);
+    setUploading(false);
+    setPayingPayout(null);
+    setReceiptFile(null);
   };
 
   const completed = txs.filter(t => t.status === "completed");
@@ -125,6 +209,42 @@ export default function AdminPaymentsPage() {
           })}
         </div>
 
+        {/* Pending customer payment verifications */}
+        {pendingPayments.length > 0 && (
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-brand-blue" />
+              <div className="font-bold text-slate-900 text-sm">Ожидают подтверждения оплаты</div>
+              <span className="text-xs bg-brand-blue/10 text-brand-blue px-2 py-0.5 rounded-full font-semibold border border-brand-blue/20">
+                {pendingPayments.length}
+              </span>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {pendingPayments.map((p) => (
+                <div key={p.id} className="flex items-center gap-4 px-5 py-3.5">
+                  {p.receipt_url && (
+                    <a href={p.receipt_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                      <img src={p.receipt_url} alt="Чек" className="w-12 h-12 rounded-lg object-cover border border-slate-200" />
+                    </a>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-900">{p.client_name}</div>
+                    <div className="text-xs text-slate-400">{p.order_number} · {p.price.toLocaleString()} so'm · {p.payment_method} · {formatDate(p.created_at)}</div>
+                  </div>
+                  <button onClick={() => verifyPayment(p.id, "verified")}
+                    className="flex items-center gap-1 h-8 px-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 text-xs font-semibold hover:bg-emerald-100 transition-all">
+                    <Check className="w-3.5 h-3.5" /> Подтвердить
+                  </button>
+                  <button onClick={() => verifyPayment(p.id, "rejected")}
+                    className="flex items-center gap-1 h-8 px-3 rounded-lg bg-red-50 border border-red-200 text-red-500 text-xs font-semibold hover:bg-red-100 transition-all">
+                    <X className="w-3.5 h-3.5" /> Отклонить
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Payout requests */}
         {payouts.some(p => p.status === "pending") && (
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
@@ -141,8 +261,13 @@ export default function AdminPaymentsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-slate-900">{p.worker_name}</div>
                     <div className="text-xs text-slate-400">{p.amount.toLocaleString()} so'm · {formatDate(p.created_at)}</div>
+                    {p.card_number && (
+                      <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
+                        <CreditCard className="w-3 h-3" /> {p.card_number}
+                      </div>
+                    )}
                   </div>
-                  <button onClick={() => processPayout(p.id, "paid")}
+                  <button onClick={() => { setPayingPayout(p); setReceiptFile(null); setReceiptError(""); }}
                     className="flex items-center gap-1 h-8 px-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 text-xs font-semibold hover:bg-emerald-100 transition-all">
                     <Check className="w-3.5 h-3.5" /> Оплачено
                   </button>
@@ -190,6 +315,65 @@ export default function AdminPaymentsPage() {
           )}
         </div>
       </div>
+
+      {/* Confirm payout modal */}
+      <AnimatePresence>
+        {payingPayout && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            onClick={() => { if (!uploading) setPayingPayout(null); }}>
+            <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-bold text-slate-900">Подтвердить выплату</h3>
+                <button onClick={() => !uploading && setPayingPayout(null)} className="text-slate-400 hover:text-slate-700">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-2.5">
+                <div className="flex items-center gap-2 text-sm">
+                  <User className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-700 font-medium">{payingPayout.worker_name}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <Wallet className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-900 font-bold">{payingPayout.amount.toLocaleString("ru-RU")} so'm</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <CreditCard className="w-4 h-4 text-slate-400 shrink-0" />
+                  {payingPayout.card_number
+                    ? <span className="text-slate-700 font-mono">{payingPayout.card_number}</span>
+                    : <span className="text-red-500">Карта не указана — уточните у мойщика</span>}
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-500 mb-2">
+                Переведите деньги на карту выше, затем приложите фото или скрин чека — без него заявку нельзя закрыть.
+              </p>
+
+              {receiptError && (
+                <div className="flex items-center gap-2 text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />{receiptError}
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 h-11 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-300 text-slate-600 text-sm font-medium cursor-pointer hover:bg-slate-100 transition-all">
+                <Paperclip className="w-4 h-4 shrink-0" />
+                <span className="truncate">{receiptFile ? receiptFile.name : "Прикрепить чек (фото/скрин)"}</span>
+                <input type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={(e) => { setReceiptFile(e.target.files?.[0] ?? null); setReceiptError(""); }} />
+              </label>
+
+              <button onClick={confirmPaid} disabled={uploading}
+                className="w-full h-12 mt-4 rounded-xl bg-brand-blue text-white font-semibold text-sm hover:bg-brand-blue/90 transition-all shadow-md disabled:opacity-60">
+                {uploading ? "Сохраняем…" : "Подтвердить оплату"}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

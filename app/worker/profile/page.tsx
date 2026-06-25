@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { User, Phone, Mail, Save, Check, AlertCircle, LogOut, Star } from "lucide-react";
+import { User, Phone, Mail, Save, Check, AlertCircle, LogOut, Star, CreditCard } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserContext } from "@/lib/context/UserContext";
 import { getInitials } from "@/lib/hooks/useUser";
@@ -14,6 +14,7 @@ export default function WorkerProfilePage() {
 
   const [name, setName]     = useState("");
   const [phone, setPhone]   = useState("");
+  const [cardNumber, setCardNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [error, setError]   = useState("");
@@ -24,6 +25,7 @@ export default function WorkerProfilePage() {
     if (profile) {
       setName(profile.name ?? "");
       setPhone(profile.phone ?? "");
+      setCardNumber(profile.card_number ?? "");
     }
   }, [profile]);
 
@@ -50,7 +52,7 @@ export default function WorkerProfilePage() {
     const supabase = createClient();
     const { error: err } = await supabase
       .from("profiles")
-      .update({ name: name.trim(), phone: phone.trim() || null })
+      .update({ name: name.trim(), phone: phone.trim() || null, card_number: cardNumber.trim() || null })
       .eq("id", profile.id);
 
     setSaving(false);
@@ -145,6 +147,18 @@ export default function WorkerProfilePage() {
               className="w-full h-11 pl-10 pr-4 bg-slate-100 border border-slate-200 rounded-xl text-slate-400 text-sm cursor-not-allowed" />
           </div>
           <p className="text-xs text-slate-400 mt-1">Email изменить нельзя</p>
+        </div>
+
+        {/* Card for payouts */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Карта для выплат</label>
+          <div className="relative">
+            <CreditCard className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input type="text" inputMode="numeric" value={cardNumber} onChange={e => setCardNumber(e.target.value)}
+              placeholder="8600 1234 5678 9012"
+              className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all" />
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Сюда администратор переведёт деньги при выводе</p>
         </div>
 
         <motion.button onClick={handleSave} disabled={saving || saved}
