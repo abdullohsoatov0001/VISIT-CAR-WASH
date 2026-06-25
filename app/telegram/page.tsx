@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronRight, ArrowLeft, Droplets, Locate } from "lucide-react";
+import { Check, ChevronRight, ArrowLeft, Droplets, Locate, Copy, Paperclip, AlertCircle } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { getClientCoords } from "@/lib/geo";
+import { compressImage } from "@/lib/image";
+import { buildPaymentDetails, MANUAL_PAYMENT_METHODS, type AppPaymentSettings } from "@/lib/payment";
 
 declare global {
   interface Window {
@@ -24,6 +26,13 @@ const services = [
 
 type SavedAddress = { id: string; label: string; address: string; lat: number; lng: number; is_default: boolean };
 
+const paymentOptions = [
+  { id: "card",  icon: "💳", label: "Карта" },
+  { id: "click", icon: "🟢", label: "Click" },
+  { id: "payme", icon: "🔵", label: "Payme" },
+  { id: "cash",  icon: "💵", label: "Наличные" },
+];
+
 export default function TelegramMiniApp() {
   const { t } = useLanguage();
   const [step, setStep] = useState(0);
@@ -36,7 +45,14 @@ export default function TelegramMiniApp() {
   const [needsLogin, setNeedsLogin] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
   const [error, setError] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptError, setReceiptError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [paymentSettings, setPaymentSettings] = useState<AppPaymentSettings | null>(null);
 
+  const companyDetails = buildPaymentDetails(paymentSettings);
+  const isManualPayment = MANUAL_PAYMENT_METHODS.includes(paymentMethod);
   const service = services.find(s => s.id === selected)!;
   const locations = [...savedAddresses, { id: "current", label: "Текущее местоположение", address: "Определим по GPS", lat: 0, lng: 0, is_default: false }];
 
@@ -69,9 +85,24 @@ export default function TelegramMiniApp() {
           }
         });
     });
+
+    supabase.from("app_settings").select("payment_card_number, payment_click_number, payment_payme_number").eq("id", 1).single()
+      .then(({ data }) => { if (data) setPaymentSettings(data); });
   }, []);
 
+  const copyDetail = (value: string) => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
   const confirm = async () => {
+    if (isManualPayment && !receiptFile) {
+      setReceiptError("Прикрепите фото или скрин чека перевода — без него заказ нельзя оформить");
+      return;
+    }
+
     setError("");
     setLoading(true);
     const supabase = createClient();
@@ -82,6 +113,19 @@ export default function TelegramMiniApp() {
       setLoading(false);
       setNeedsLogin(true);
       return;
+    }
+
+    let receiptUrl: string | null = null;
+    if (isManualPayment && receiptFile) {
+      const blob = await compressImage(receiptFile).catch(() => null);
+      const path = `${user.id}/${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage.from("payment-receipts").upload(path, blob ?? receiptFile, { contentType: "image/jpeg" });
+      if (uploadError) {
+        setLoading(false);
+        setReceiptError("Не удалось загрузить чек, попробуйте ещё раз");
+        return;
+      }
+      receiptUrl = supabase.storage.from("payment-receipts").getPublicUrl(path).data.publicUrl;
     }
 
     const newOrderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
@@ -102,6 +146,9 @@ export default function TelegramMiniApp() {
       client_lat: chosen?.lat ?? coords?.lat ?? null,
       client_lng: chosen?.lng ?? coords?.lng ?? null,
       client_phone: profileRes.data?.phone ?? null,
+      payment_method: paymentMethod,
+      payment_status: isManualPayment ? "awaiting_verification" : "unpaid",
+      receipt_url: receiptUrl,
     });
 
     setLoading(false);
@@ -184,7 +231,7 @@ export default function TelegramMiniApp() {
 
       {/* Progress bar */}
       <div className="h-0.5 bg-slate-200">
-        <motion.div className="h-full bg-brand-blue" style={{ width: `${(step / 3) * 100}%` }} transition={{ duration: 0.3 }} />
+        <motion.div className="h-full bg-brand-blue" style={{ width: `${(step / 4) * 100}%` }} transition={{ duration: 0.3 }} />
       </div>
 
       <div className="flex-1 p-4 overflow-auto space-y-3 max-w-sm mx-auto w-full">
@@ -262,9 +309,57 @@ export default function TelegramMiniApp() {
             </motion.div>
           )}
 
-          {/* STEP 3 — Confirm */}
+          {/* STEP 3 — Payment method */}
           {step === 3 && (
             <motion.div key="s3" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">💳 Способ оплаты</div>
+              <div className="space-y-2 mb-4">
+                {paymentOptions.map((p) => (
+                  <button key={p.id} onClick={() => { setPaymentMethod(p.id); setReceiptError(""); }}
+                    className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all text-left ${paymentMethod === p.id ? "bg-brand-blue/10 border-brand-blue/40" : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"}`}>
+                    <span className="text-xl w-8 text-center">{p.icon}</span>
+                    <span className="flex-1 text-sm font-bold text-slate-900">{p.label}</span>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${paymentMethod === p.id ? "border-brand-blue bg-brand-blue" : "border-slate-300"}`}>
+                      {paymentMethod === p.id && <Check className="w-3 h-3 text-white" />}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {isManualPayment && (
+                <div className="bg-white rounded-2xl p-4 space-y-3 border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs text-slate-400">{companyDetails[paymentMethod]?.label}</div>
+                      <div className="font-mono font-bold text-slate-900 text-sm">{companyDetails[paymentMethod]?.value}</div>
+                    </div>
+                    <button onClick={() => copyDetail(companyDetails[paymentMethod]?.value ?? "")}
+                      className="flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-500 text-xs font-medium shrink-0">
+                      <Copy className="w-3.5 h-3.5" /> {copied ? "Скопировано" : "Скопировать"}
+                    </button>
+                  </div>
+                  <div className="text-xs text-slate-500">Сумма: <span className="font-bold text-slate-900">{service.price} so&apos;m</span></div>
+
+                  {receiptError && (
+                    <div className="flex items-center gap-2 text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />{receiptError}
+                    </div>
+                  )}
+
+                  <label className="flex items-center gap-2 h-11 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-300 text-slate-600 text-sm font-medium cursor-pointer">
+                    <Paperclip className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{receiptFile ? receiptFile.name : "Прикрепить чек (фото/скрин)"}</span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden"
+                      onChange={(e) => { setReceiptFile(e.target.files?.[0] ?? null); setReceiptError(""); }} />
+                  </label>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* STEP 4 — Confirm */}
+          {step === 4 && (
+            <motion.div key="s4" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">✅ {t("telegram.confirmOrder")}</div>
 
               <div className="bg-white rounded-2xl p-4 space-y-3 mb-4 border border-slate-200 shadow-sm">
@@ -273,7 +368,7 @@ export default function TelegramMiniApp() {
                   ["Location", locations.find(l => l.id === location)?.label || ""],
                   ["Time", time],
                   ["Price", `${service.price} so'm`],
-                  ["Payment", "💵 При получении"],
+                  ["Payment", `${paymentOptions.find(p => p.id === paymentMethod)?.icon} ${paymentOptions.find(p => p.id === paymentMethod)?.label}`],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between">
                     <span className="text-xs text-slate-400">{k}</span>
@@ -296,13 +391,19 @@ export default function TelegramMiniApp() {
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}
-          onClick={step < 3 ? () => setStep(s => s + 1) : confirm}
+          onClick={() => {
+            if (step === 3 && isManualPayment && !receiptFile) {
+              setReceiptError("Прикрепите фото или скрин чека перевода — без него заказ нельзя оформить");
+              return;
+            }
+            if (step < 4) setStep(s => s + 1); else confirm();
+          }}
           disabled={loading}
           className="w-full h-12 rounded-2xl bg-brand-blue text-white font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60 shadow-md transition-all"
         >
           {loading ? (
             <><svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> Booking...</>
-          ) : step === 3 ? (
+          ) : step === 4 ? (
             <>{t("telegram.confirmPay")} {service.price} <Check className="w-4 h-4" /></>
           ) : (
             <>Continue <ChevronRight className="w-4 h-4" /></>

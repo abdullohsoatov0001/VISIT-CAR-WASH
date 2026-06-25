@@ -1,6 +1,7 @@
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
-import { tgSendMessage, tgAnswerCallbackQuery } from "@/lib/telegram";
+import { tgSendMessage, tgAnswerCallbackQuery, tgDownloadFile } from "@/lib/telegram";
+import { buildPaymentDetails, MANUAL_PAYMENT_METHODS } from "@/lib/payment";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 
@@ -43,6 +44,15 @@ const contactKeyboard = {
   one_time_keyboard: true,
 };
 
+const paymentKeyboard = {
+  inline_keyboard: [
+    [{ text: "💳 Карта", callback_data: "pay:card" }],
+    [{ text: "🟢 Click", callback_data: "pay:click" }],
+    [{ text: "🔵 Payme", callback_data: "pay:payme" }],
+    [{ text: "💵 Наличные", callback_data: "pay:cash" }],
+  ],
+};
+
 function normalizePhone(raw: string) {
   return raw.replace(/\D/g, "");
 }
@@ -64,7 +74,11 @@ async function promptContact(chatId: number) {
 }
 
 async function selectService(db: ReturnType<typeof admin>, chatId: number, profile: { id: string }, serviceId: string) {
-  await db.from("telegram_pending_orders").upsert({ chat_id: chatId, service_id: serviceId, updated_at: new Date().toISOString() });
+  await db.from("telegram_pending_orders").upsert({
+    chat_id: chatId, service_id: serviceId,
+    lat: null, lng: null, location_name: null, payment_method: null,
+    step: "address", updated_at: new Date().toISOString(),
+  });
 
   const { data: addresses } = await db.from("addresses").select("id, label, address").eq("user_id", profile.id).order("is_default", { ascending: false });
   if (addresses && addresses.length > 0) {
@@ -77,6 +91,13 @@ async function selectService(db: ReturnType<typeof admin>, chatId: number, profi
   }
 }
 
+// После выбора адреса/геолокации не создаём заказ сразу — сперва спрашиваем
+// способ оплаты (карта/Click/Payme требуют чек, наличные — нет).
+async function askPaymentMethod(db: ReturnType<typeof admin>, chatId: number, lat: number, lng: number, locationName: string) {
+  await db.from("telegram_pending_orders").update({ lat, lng, location_name: locationName, step: "payment" }).eq("chat_id", chatId);
+  await tgSendMessage(chatId, "Выберите способ оплаты:", paymentKeyboard);
+}
+
 async function createOrderAndReply(
   db: ReturnType<typeof admin>,
   chatId: number,
@@ -84,7 +105,10 @@ async function createOrderAndReply(
   serviceId: string,
   lat: number,
   lng: number,
-  locationName: string
+  locationName: string,
+  paymentMethod: string,
+  paymentStatus: string,
+  receiptUrl: string | null
 ) {
   const svc = services[serviceId];
   const orderNumber = "W-" + Math.floor(1000 + Math.random() * 9000);
@@ -99,6 +123,9 @@ async function createOrderAndReply(
     client_lat: lat,
     client_lng: lng,
     client_phone: profile.phone,
+    payment_method: paymentMethod,
+    payment_status: paymentStatus,
+    receipt_url: receiptUrl,
   });
 
   await db.from("telegram_pending_orders").delete().eq("chat_id", chatId);
@@ -108,9 +135,13 @@ async function createOrderAndReply(
     return;
   }
 
+  const paymentNote = paymentStatus === "awaiting_verification"
+    ? "\n\n⏳ Чек получен, ожидайте подтверждения оплаты администратором — мойщик начнёт мойку после подтверждения."
+    : "";
+
   await tgSendMessage(
     chatId,
-    `✅ Заказ <b>${orderNumber}</b> создан!\n${svc.icon} ${svc.name} — ${servicePrices[serviceId].toLocaleString("ru-RU")} so'm\n\nИщем для вас мойщика. Следить за статусом можно на сайте: ${APP_URL}/dashboard/tracking`,
+    `✅ Заказ <b>${orderNumber}</b> создан!\n${svc.icon} ${svc.name} — ${servicePrices[serviceId].toLocaleString("ru-RU")} so'm${paymentNote}\n\nИщем для вас мойщика. Следить за статусом можно на сайте: ${APP_URL}/dashboard/tracking`,
     mainKeyboard
   );
 }
@@ -200,7 +231,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    await createOrderAndReply(db, chatId, profile, pending.service_id, clientLat, clientLng, "Из Telegram-бота (геолокация)");
+    await askPaymentMethod(db, chatId, clientLat, clientLng, "Из Telegram-бота (геолокация)");
+    return NextResponse.json({ ok: true });
+  }
+
+  // Фото чека — последний шаг ручной оплаты (карта/Click/Payme)
+  if (message?.photo) {
+    const chatId = message.chat.id as number;
+
+    const { data: pending } = await db.from("telegram_pending_orders").select("*").eq("chat_id", chatId).maybeSingle();
+    if (!pending || pending.step !== "receipt" || !pending.payment_method) {
+      await tgSendMessage(chatId, "Сначала выберите услугу: /menu");
+      return NextResponse.json({ ok: true });
+    }
+
+    const { data: profile } = await db.from("profiles").select("id, phone").eq("telegram_chat_id", chatId).maybeSingle();
+    if (!profile) {
+      await promptContact(chatId);
+      return NextResponse.json({ ok: true });
+    }
+
+    const photos = message.photo as { file_id: string }[];
+    const fileId = photos[photos.length - 1].file_id;
+
+    let receiptUrl: string | null = null;
+    try {
+      const bytes = await tgDownloadFile(fileId);
+      const path = `${profile.id}/${Date.now()}.jpg`;
+      const { error: uploadError } = await db.storage.from("payment-receipts").upload(path, bytes, { contentType: "image/jpeg" });
+      if (uploadError) throw uploadError;
+      receiptUrl = db.storage.from("payment-receipts").getPublicUrl(path).data.publicUrl;
+    } catch {
+      await tgSendMessage(chatId, "Не удалось сохранить чек, попробуйте отправить фото ещё раз.");
+      return NextResponse.json({ ok: true });
+    }
+
+    await createOrderAndReply(
+      db, chatId, profile, pending.service_id, pending.lat, pending.lng, pending.location_name,
+      pending.payment_method, "awaiting_verification", receiptUrl
+    );
     return NextResponse.json({ ok: true });
   }
 
@@ -294,7 +363,38 @@ export async function POST(req: NextRequest) {
     }
 
     await tgAnswerCallbackQuery(callback.id, "Адрес выбран");
-    await createOrderAndReply(db, chatId, profile, pending.service_id, address.lat, address.lng, address.address);
+    await askPaymentMethod(db, chatId, address.lat, address.lng, address.address);
+    return NextResponse.json({ ok: true });
+  }
+
+  // Выбор способа оплаты
+  if (callback?.data?.startsWith("pay:")) {
+    const chatId = callback.message.chat.id as number;
+    const method = callback.data.slice(4);
+
+    const { data: profile } = await db.from("profiles").select("id, phone").eq("telegram_chat_id", chatId).maybeSingle();
+    const { data: pending } = await db.from("telegram_pending_orders").select("*").eq("chat_id", chatId).maybeSingle();
+
+    if (!profile || !pending || pending.lat == null) {
+      await tgAnswerCallbackQuery(callback.id, "Сначала выберите услугу и адрес: /menu");
+      return NextResponse.json({ ok: true });
+    }
+
+    await tgAnswerCallbackQuery(callback.id);
+
+    if (method === "cash" || !MANUAL_PAYMENT_METHODS.includes(method)) {
+      await createOrderAndReply(db, chatId, profile, pending.service_id, pending.lat, pending.lng, pending.location_name, "cash", "unpaid", null);
+      return NextResponse.json({ ok: true });
+    }
+
+    const { data: settings } = await db.from("app_settings").select("payment_card_number, payment_click_number, payment_payme_number").eq("id", 1).maybeSingle();
+    const detail = buildPaymentDetails(settings ?? null)[method];
+
+    await db.from("telegram_pending_orders").update({ payment_method: method, step: "receipt" }).eq("chat_id", chatId);
+    await tgSendMessage(
+      chatId,
+      `Переведите <b>${servicePrices[pending.service_id].toLocaleString("ru-RU")} so'm</b> на:\n${detail.label}: <code>${detail.value}</code>\n\nЗатем отправьте сюда фото или скрин чека 📸`
+    );
     return NextResponse.json({ ok: true });
   }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, ArrowUpRight, ArrowDownRight, CreditCard, TrendingUp, Check, X, Wallet, Paperclip, AlertCircle, User } from "lucide-react";
+import { Bell, ArrowUpRight, ArrowDownRight, CreditCard, TrendingUp, Check, X, Wallet, Paperclip, AlertCircle, User, Clock, MapPin, Phone, Car } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { debounce } from "@/lib/utils";
@@ -15,6 +15,7 @@ type Tx = {
   price: number;
   status: string;
   created_at: string;
+  completed_at: string | null;
   client_name?: string;
 };
 
@@ -22,11 +23,15 @@ type PendingPayment = {
   id: string;
   order_number: string;
   user_id: string;
+  service_type: string;
+  location_name: string | null;
   price: number;
   payment_method: string;
   receipt_url: string | null;
   created_at: string;
+  accepted_at: string | null;
   client_name?: string;
+  client_phone?: string | null;
 };
 
 type Payout = {
@@ -44,6 +49,8 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+const paymentMethodLabel: Record<string, string> = { card: "Карта", click: "Click", payme: "Payme", cash: "Наличные" };
+
 export default function AdminPaymentsPage() {
   const { t } = useLanguage();
   const [txs, setTxs] = useState<Tx[]>([]);
@@ -54,6 +61,7 @@ export default function AdminPaymentsPage() {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptError, setReceiptError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [viewingPayment, setViewingPayment] = useState<PendingPayment | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -62,7 +70,7 @@ export default function AdminPaymentsPage() {
       const [{ data: rows }, { data: payoutRows }, { data: pendingRows }] = await Promise.all([
         supabase
           .from("orders")
-          .select("id, order_number, user_id, price, status, created_at")
+          .select("id, order_number, user_id, price, status, created_at, completed_at")
           .in("status", ["completed", "cancelled"])
           .order("created_at", { ascending: false })
           .limit(30),
@@ -72,7 +80,7 @@ export default function AdminPaymentsPage() {
           .order("created_at", { ascending: false }),
         supabase
           .from("orders")
-          .select("id, order_number, user_id, price, payment_method, receipt_url, created_at")
+          .select("id, order_number, user_id, service_type, location_name, price, payment_method, receipt_url, created_at, accepted_at")
           .eq("payment_status", "awaiting_verification")
           .order("created_at", { ascending: false }),
       ]);
@@ -80,13 +88,15 @@ export default function AdminPaymentsPage() {
       const orders = rows ?? [];
       const allUserIds = Array.from(new Set([...orders.map(o => o.user_id), ...(payoutRows ?? []).map(p => p.worker_id), ...(pendingRows ?? []).map(p => p.user_id)]));
       let names: Record<string, string> = {};
+      let phones: Record<string, string | null> = {};
       if (allUserIds.length > 0) {
-        const { data: profiles } = await supabase.from("profiles").select("id, name").in("id", allUserIds);
+        const { data: profiles } = await supabase.from("profiles").select("id, name, phone").in("id", allUserIds);
         names = Object.fromEntries((profiles ?? []).map(p => [p.id, p.name]));
+        phones = Object.fromEntries((profiles ?? []).map(p => [p.id, p.phone]));
       }
       setTxs(orders.map(o => ({ ...o, client_name: names[o.user_id] ?? "—" })));
       setPayouts((payoutRows ?? []).map(p => ({ ...p, worker_name: names[p.worker_id] ?? "—" })));
-      setPendingPayments((pendingRows ?? []).map(p => ({ ...p, client_name: names[p.user_id] ?? "—" })));
+      setPendingPayments((pendingRows ?? []).map(p => ({ ...p, client_name: names[p.user_id] ?? "—", client_phone: phones[p.user_id] ?? null })));
       setLoading(false);
     }
 
@@ -127,6 +137,7 @@ export default function AdminPaymentsPage() {
   const verifyPayment = async (id: string, decision: "verified" | "rejected") => {
     const payment = pendingPayments.find(p => p.id === id);
     setPendingPayments(prev => prev.filter(p => p.id !== id));
+    setViewingPayment(prev => prev?.id === id ? null : prev);
     const supabase = createClient();
     await supabase.from("orders").update({ payment_status: decision }).eq("id", id);
 
@@ -221,22 +232,25 @@ export default function AdminPaymentsPage() {
             </div>
             <div className="divide-y divide-slate-100">
               {pendingPayments.map((p) => (
-                <div key={p.id} className="flex items-center gap-4 px-5 py-3.5">
-                  {p.receipt_url && (
-                    <a href={p.receipt_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                      <img src={p.receipt_url} alt="Чек" className="w-12 h-12 rounded-lg object-cover border border-slate-200" />
-                    </a>
+                <div key={p.id} onClick={() => setViewingPayment(p)}
+                  className="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-slate-50 transition-colors">
+                  {p.receipt_url ? (
+                    <img src={p.receipt_url} alt="Чек" className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0 text-slate-300">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-slate-900">{p.client_name}</div>
-                    <div className="text-xs text-slate-400">{p.order_number} · {p.price.toLocaleString()} so'm · {p.payment_method} · {formatDate(p.created_at)}</div>
+                    <div className="text-xs text-slate-400">{p.order_number} · {p.price.toLocaleString()} so'm · {paymentMethodLabel[p.payment_method] ?? p.payment_method} · {formatDate(p.created_at)}</div>
                   </div>
-                  <button onClick={() => verifyPayment(p.id, "verified")}
-                    className="flex items-center gap-1 h-8 px-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 text-xs font-semibold hover:bg-emerald-100 transition-all">
+                  <button onClick={(e) => { e.stopPropagation(); verifyPayment(p.id, "verified"); }}
+                    className="flex items-center gap-1 h-8 px-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 text-xs font-semibold hover:bg-emerald-100 transition-all shrink-0">
                     <Check className="w-3.5 h-3.5" /> Подтвердить
                   </button>
-                  <button onClick={() => verifyPayment(p.id, "rejected")}
-                    className="flex items-center gap-1 h-8 px-3 rounded-lg bg-red-50 border border-red-200 text-red-500 text-xs font-semibold hover:bg-red-100 transition-all">
+                  <button onClick={(e) => { e.stopPropagation(); verifyPayment(p.id, "rejected"); }}
+                    className="flex items-center gap-1 h-8 px-3 rounded-lg bg-red-50 border border-red-200 text-red-500 text-xs font-semibold hover:bg-red-100 transition-all shrink-0">
                     <X className="w-3.5 h-3.5" /> Отклонить
                   </button>
                 </div>
@@ -300,7 +314,9 @@ export default function AdminPaymentsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-slate-900">{tx.client_name}</div>
-                      <div className="text-xs text-slate-400">{tx.order_number} · {formatDate(tx.created_at)}</div>
+                      <div className="text-xs text-slate-400">
+                        {tx.order_number} · {ok && tx.completed_at ? `завершён ${formatDate(tx.completed_at)}` : `создан ${formatDate(tx.created_at)}`}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className={`text-sm font-bold ${ok ? "text-emerald-600" : "text-red-500"}`}>
@@ -347,6 +363,10 @@ export default function AdminPaymentsPage() {
                     ? <span className="text-slate-700 font-mono">{payingPayout.card_number}</span>
                     : <span className="text-red-500">Карта не указана — уточните у мойщика</span>}
                 </div>
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <Clock className="w-4 h-4 shrink-0" />
+                  Запрошено {formatDate(payingPayout.created_at)}
+                </div>
               </div>
 
               <p className="text-xs text-slate-500 mb-2">
@@ -370,6 +390,86 @@ export default function AdminPaymentsPage() {
                 className="w-full h-12 mt-4 rounded-xl bg-brand-blue text-white font-semibold text-sm hover:bg-brand-blue/90 transition-all shadow-md disabled:opacity-60">
                 {uploading ? "Сохраняем…" : "Подтвердить оплату"}
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Просмотр чека клиента + подтверждение/отклонение оплаты */}
+      <AnimatePresence>
+        {viewingPayment && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            onClick={() => setViewingPayment(null)}>
+            <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-900">Чек оплаты — {viewingPayment.order_number}</h3>
+                <button onClick={() => setViewingPayment(null)} className="text-slate-400 hover:text-slate-700">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {viewingPayment.receipt_url ? (
+                <a href={viewingPayment.receipt_url} target="_blank" rel="noopener noreferrer" className="block mb-4">
+                  <img src={viewingPayment.receipt_url} alt="Чек" className="w-full max-h-80 object-contain rounded-xl border border-slate-200 bg-slate-50" />
+                  <div className="text-xs text-brand-blue text-center mt-1.5">Открыть в полном размере →</div>
+                </a>
+              ) : (
+                <div className="w-full h-40 flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-300 mb-4">
+                  Чек не приложен
+                </div>
+              )}
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-2.5 text-sm">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-700 font-medium">{viewingPayment.client_name}</span>
+                </div>
+                {viewingPayment.client_phone && (
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+                    <a href={`tel:${viewingPayment.client_phone}`} className="text-slate-700">{viewingPayment.client_phone}</a>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Car className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-700">{viewingPayment.service_type}</span>
+                </div>
+                {viewingPayment.location_name && (
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-700">{viewingPayment.location_name}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-900 font-bold">{viewingPayment.price.toLocaleString("ru-RU")} so&apos;m</span>
+                  <span className="text-slate-400">· {paymentMethodLabel[viewingPayment.payment_method] ?? viewingPayment.payment_method}</span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-400 pt-1 border-t border-slate-200">
+                  <Clock className="w-4 h-4 shrink-0" />
+                  Заказан {formatDate(viewingPayment.created_at)}
+                </div>
+                {viewingPayment.accepted_at && (
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Clock className="w-4 h-4 shrink-0" />
+                    Принят мойщиком {formatDate(viewingPayment.accepted_at)}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={() => verifyPayment(viewingPayment.id, "rejected")}
+                  className="flex-1 h-12 rounded-xl bg-red-50 border border-red-200 text-red-500 font-semibold text-sm hover:bg-red-100 transition-all flex items-center justify-center gap-2">
+                  <X className="w-4 h-4" /> Отклонить
+                </button>
+                <button onClick={() => verifyPayment(viewingPayment.id, "verified")}
+                  className="flex-1 h-12 rounded-xl bg-emerald-500 text-white font-semibold text-sm hover:bg-emerald-600 transition-all flex items-center justify-center gap-2">
+                  <Check className="w-4 h-4" /> Подтвердить
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

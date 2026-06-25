@@ -16,6 +16,14 @@ export async function tgAnswerCallbackQuery(callbackQueryId: string, text?: stri
   });
 }
 
+export async function tgDownloadFile(fileId: string): Promise<ArrayBuffer> {
+  const res = await fetch(`${API}/getFile?file_id=${fileId}`);
+  const data = await res.json();
+  const filePath = data.result.file_path;
+  const fileRes = await fetch(`https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${filePath}`);
+  return fileRes.arrayBuffer();
+}
+
 export async function tgSendPhotos(chatId: number, urls: string[], caption?: string) {
   const photos = urls.slice(0, 10);
   if (photos.length === 0) return;
