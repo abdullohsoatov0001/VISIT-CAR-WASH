@@ -379,7 +379,7 @@ export default function TelegramMiniApp() {
               </div>
 
               <div className="text-xs text-slate-400 text-center mb-3 leading-relaxed">
-                {t("telegram.agreeTerms")} <span className="text-brand-blue">{t("telegram.termsOfService")}</span>
+                {t("telegram.agreeTerms")} <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-brand-blue underline">{t("telegram.termsOfService")}</a>
               </div>
             </motion.div>
           )}

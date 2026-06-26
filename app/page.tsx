@@ -638,14 +638,14 @@ function Footer() {
             </div>
           </div>
           {[
-            { title: t("nav.product"), links: [t("nav.howItWorks"), t("nav.features"), t("nav.pricing"), "Subscriptions", "Telegram"] },
-            { title: "Company", links: ["About", "Blog", "Careers", "Press", "Contact"] },
-            { title: "Legal", links: ["Privacy", "Terms", "Cookie Policy", "Licenses"] },
+            { title: t("nav.product"), links: [{ label: t("nav.howItWorks") }, { label: t("nav.features") }, { label: t("nav.pricing"), href: "/pricing" }, { label: "Subscriptions", href: "/pricing" }, { label: "Telegram" }] },
+            { title: "Company", links: [{ label: "About" }, { label: "Blog" }, { label: "Careers" }, { label: "Press" }, { label: "Contact" }] },
+            { title: "Legal", links: [{ label: "Privacy", href: "/privacy" }, { label: "Terms", href: "/terms" }, { label: "Cookie Policy" }, { label: "Licenses" }] },
           ].map((col) => (
             <div key={col.title}>
               <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">{col.title}</h4>
               <ul className="space-y-2.5">
-                {col.links.map((link) => (<li key={link}><a href="#" className="text-sm text-slate-400 hover:text-slate-700 transition-colors">{link}</a></li>))}
+                {col.links.map((link) => (<li key={link.label}><a href={link.href ?? "#"} className="text-sm text-slate-400 hover:text-slate-700 transition-colors">{link.label}</a></li>))}
               </ul>
             </div>
           ))}

@@ -138,7 +138,14 @@ export default function RegisterPage() {
             </motion.button>
           </form>
 
-          <p className="text-center text-sm text-slate-400 mt-5">
+          <p className="text-center text-xs text-slate-400 mt-4 leading-relaxed">
+            Регистрируясь, вы соглашаетесь с{" "}
+            <Link href="/terms" target="_blank" className="text-brand-blue hover:underline">условиями использования</Link>
+            {" "}и{" "}
+            <Link href="/privacy" target="_blank" className="text-brand-blue hover:underline">политикой конфиденциальности</Link>
+          </p>
+
+          <p className="text-center text-sm text-slate-400 mt-3">
             Уже есть аккаунт?{" "}
             <Link href="/login" className="text-brand-blue hover:underline font-medium">Войти</Link>
           </p>
