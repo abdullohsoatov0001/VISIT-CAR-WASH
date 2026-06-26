@@ -12,6 +12,7 @@ import { formatEta, getClientCoords } from "@/lib/geo";
 import { startWorkerLocationSharing } from "@/lib/workerLocation";
 import { formatDateTime } from "@/lib/utils";
 import { MANUAL_PAYMENT_METHODS } from "@/lib/payment";
+import { sendPush } from "@/lib/notify";
 
 const NavigationView = dynamic(() => import("@/components/NavigationView"), { ssr: false });
 const WashPhotoModal = dynamic(() => import("@/components/WashPhotoModal"), { ssr: false });
@@ -198,6 +199,7 @@ export default function WorkerDashboard() {
       title: "Мойщик найден!",
       body: `${profile.name} принял ваш заказ ${order.order_number} и скоро будет в пути.`,
     });
+    sendPush(order.user_id, "Мойщик найден!", `${profile.name} принял ваш заказ ${order.order_number} и скоро будет в пути.`);
     notifyTelegram(order.id, "accepted");
   };
 
@@ -235,6 +237,7 @@ export default function WorkerDashboard() {
       body: `Мойщик едет к вам по заказу ${activeOrder.order_number}.`,
       urgent: true,
     });
+    sendPush(activeOrder.user_id, "Мойщик в пути!", `Мойщик едет к вам по заказу ${activeOrder.order_number}.`);
     notifyTelegram(activeOrder.id, "en_route");
 
     setShowNav(true);
@@ -279,6 +282,7 @@ export default function WorkerDashboard() {
       title: "Мойка завершена ✓",
       body: `Заказ ${activeOrder.order_number} выполнен. Сравните фото до/после и оцените мойщика.`,
     });
+    sendPush(activeOrder.user_id, "Мойка завершена ✓", `Заказ ${activeOrder.order_number} выполнен. Сравните фото до/после и оцените мойщика.`);
     notifyTelegram(activeOrder.id, "completed", urls);
 
     setPhotoStep(null);
@@ -302,6 +306,7 @@ export default function WorkerDashboard() {
       title: "Ищем нового мойщика",
       body: `${profile.name} не может выполнить заказ ${activeOrder.order_number}. Ищем для вас другого мойщика.`,
     });
+    sendPush(activeOrder.user_id, "Ищем нового мойщика", `${profile.name} не может выполнить заказ ${activeOrder.order_number}. Ищем для вас другого мойщика.`);
     notifyTelegram(activeOrder.id, "cancelled");
 
     setCancelling(false);

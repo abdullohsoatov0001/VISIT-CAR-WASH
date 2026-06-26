@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Wallet, TrendingUp, Car, Clock, X, Check, ArrowDownToLine, Receipt, CreditCard } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { sendPush } from "@/lib/notify";
 
 type Order = {
   id: string;
@@ -133,6 +134,11 @@ export default function WorkerEarningsPage() {
             body: `${workerName || "Мойщик"} хочет вывести ${formatPrice(amount)} so'm. Нужно отправить деньги вручную и отметить заявку оплаченной.`,
           }))
         );
+        admins.forEach((a) => sendPush(
+          a.id,
+          "Запрос на вывод средств",
+          `${workerName || "Мойщик"} хочет вывести ${formatPrice(amount)} so'm.`
+        ));
       }
       fetch("/api/notify/payout-request", {
         method: "POST",

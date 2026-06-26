@@ -7,6 +7,7 @@ import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { debounce } from "@/lib/utils";
 import { compressImage } from "@/lib/image";
+import { sendPush } from "@/lib/notify";
 
 type Tx = {
   id: string;
@@ -131,6 +132,11 @@ export default function AdminPaymentsPage() {
           ? `Вам отправлено ${payout.amount.toLocaleString("ru-RU")} so'm.${receiptUrl ? " Чек приложен." : ""}`
           : `Запрос на вывод ${payout.amount.toLocaleString("ru-RU")} so'm отклонён. Свяжитесь с администратором.`,
       });
+      sendPush(
+        payout.worker_id,
+        status === "paid" ? "Деньги отправлены" : "Запрос на вывод отклонён",
+        status === "paid" ? `Вам отправлено ${payout.amount.toLocaleString("ru-RU")} so'm.` : `Запрос на вывод ${payout.amount.toLocaleString("ru-RU")} so'm отклонён.`
+      );
     }
   };
 
@@ -150,6 +156,11 @@ export default function AdminPaymentsPage() {
           ? `Ваш платёж по заказу ${payment.order_number} подтверждён.`
           : `Платёж по заказу ${payment.order_number} отклонён — проверьте чек и свяжитесь с поддержкой.`,
       });
+      sendPush(
+        payment.user_id,
+        decision === "verified" ? "Оплата подтверждена" : "Оплата отклонена",
+        decision === "verified" ? `Ваш платёж по заказу ${payment.order_number} подтверждён.` : `Платёж по заказу ${payment.order_number} отклонён.`
+      );
     }
   };
 
