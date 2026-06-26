@@ -12,10 +12,10 @@ const plans = [
     id: "starter",
     name: "Starter",
     icon: <Zap className="w-5 h-5" />,
-    monthlyPrice: 179000,
-    annualPrice: 143200,
+    monthlyPrice: 730000,
+    annualPrice: 584000,
     washes: 4,
-    type: "Express Washes",
+    type: "Standard Washes",
     color: "default",
     perks: [
       "4 Express washes per month",
@@ -31,8 +31,8 @@ const plans = [
     id: "pro",
     name: "Pro",
     icon: <Star className="w-5 h-5" />,
-    monthlyPrice: 519000,
-    annualPrice: 415200,
+    monthlyPrice: 1680000,
+    annualPrice: 1344000,
     washes: 6,
     type: "Premium Washes",
     color: "blue",
@@ -53,8 +53,8 @@ const plans = [
     id: "black",
     name: "Black",
     icon: <Award className="w-5 h-5" />,
-    monthlyPrice: 899000,
-    annualPrice: 719200,
+    monthlyPrice: 2510000,
+    annualPrice: 2008000,
     washes: 10,
     type: "Washes/mo (any service)",
     color: "purple",
@@ -203,12 +203,11 @@ export default function PricingPage() {
         <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
           transition={{ duration: 0.6 }} className="mb-20">
           <h2 className="text-2xl font-black text-slate-900 text-center mb-8">{t("pricing.oneTime")}</h2>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
-              { name: "Express Wash", price: "49 000", icon: "⚡", time: "~30 min" },
-              { name: "Premium Wash", price: "99 000", icon: "✨", time: "~60 min" },
-              { name: "Elite Detail", price: "199 000", icon: "💎", time: "~2 hrs" },
-              { name: "Eco Wash", price: "59 000", icon: "🌿", time: "~45 min" },
+              { name: "Standard Wash", price: "200 000", icon: "⚡", time: "~30 min" },
+              { name: "Premium Wash", price: "320 000", icon: "✨", time: "~60 min" },
+              { name: "VIP Detail", price: "450 000", icon: "💎", time: "~2 hrs" },
             ].map((s, i) => (
               <motion.div key={s.name} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
                 transition={{ delay: i * 0.08 }} whileHover={{ y: -3 }}

@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getClientCoords } from "@/lib/geo";
 import { compressImage } from "@/lib/image";
 import { buildPaymentDetails, MANUAL_PAYMENT_METHODS, type AppPaymentSettings } from "@/lib/payment";
+import { workerEarning } from "@/lib/commission";
 
 declare global {
   interface Window {
@@ -15,13 +16,12 @@ declare global {
   }
 }
 
-const servicePrices: Record<string, number> = { express: 49000, premium: 99000, detail: 199000, eco: 59000 };
+const servicePrices: Record<string, number> = { express: 200000, premium: 320000, detail: 450000 };
 
 const services = [
-  { id: "express", icon: "⚡", name: "Express", price: "49 000", time: "~30 min" },
-  { id: "premium", icon: "✨", name: "Premium", price: "99 000", time: "~60 min", popular: true },
-  { id: "detail", icon: "💎", name: "Detail", price: "199 000", time: "~2 hrs" },
-  { id: "eco", icon: "🌿", name: "Eco", price: "59 000", time: "~45 min" },
+  { id: "express", icon: "⚡", name: "Standard", price: "200 000", time: "~30 min" },
+  { id: "premium", icon: "✨", name: "Premium", price: "320 000", time: "~60 min", popular: true },
+  { id: "detail", icon: "💎", name: "VIP", price: "450 000", time: "~2 hrs" },
 ];
 
 type SavedAddress = { id: string; label: string; address: string; lat: number; lng: number; is_default: boolean };
@@ -141,6 +141,7 @@ export default function TelegramMiniApp() {
       service_type: `${service.name} Wash`,
       status: "pending",
       price: servicePrices[service.id],
+      worker_earning: workerEarning(service.id, servicePrices[service.id]),
       location_name: chosen?.address ?? "Текущее местоположение",
       scheduled_at: time === "Now (ASAP)" ? new Date().toISOString() : null,
       client_lat: chosen?.lat ?? coords?.lat ?? null,

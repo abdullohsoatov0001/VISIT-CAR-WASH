@@ -35,9 +35,9 @@ type Subscription = {
 };
 
 const SUBSCRIPTION_PLANS = [
-  { id: "starter", name: "Starter", icon: Zap,  price: 179000, washes: 4,  color: "text-brand-blue border-brand-blue/30 bg-brand-blue/5" },
-  { id: "pro",     name: "Pro",     icon: Star, price: 519000, washes: 6,  color: "text-brand-purple border-brand-purple/30 bg-brand-purple/5" },
-  { id: "black",   name: "Black",   icon: Award, price: 899000, washes: 10, color: "text-slate-900 border-slate-300 bg-slate-50" },
+  { id: "starter", name: "Starter", icon: Zap,  price: 730000, washes: 4,  color: "text-brand-blue border-brand-blue/30 bg-brand-blue/5" },
+  { id: "pro",     name: "Pro",     icon: Star, price: 1680000, washes: 6,  color: "text-brand-purple border-brand-purple/30 bg-brand-purple/5" },
+  { id: "black",   name: "Black",   icon: Award, price: 2510000, washes: 10, color: "text-slate-900 border-slate-300 bg-slate-50" },
 ];
 
 const cardGradient = (type: string) =>

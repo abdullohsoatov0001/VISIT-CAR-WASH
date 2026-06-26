@@ -39,6 +39,7 @@ type Order = {
   service_type: string;
   status: string;
   price: number;
+  worker_earning: number | null;
   location_name: string;
   user_id: string;
   worker_id: string | null;
@@ -393,7 +394,7 @@ export default function WorkerDashboard() {
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <div className="text-xl font-black text-emerald-600">{(activeOrder.price / 1000).toFixed(0)}K</div>
+                  <div className="text-xl font-black text-emerald-600">{((activeOrder.worker_earning ?? activeOrder.price) / 1000).toFixed(0)}K</div>
                   <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">so&apos;m</div>
                 </div>
               </div>
@@ -632,7 +633,7 @@ export default function WorkerDashboard() {
                         </div>
                         <div className="text-right">
                           <div className="text-lg font-black text-slate-900">
-                            {(order.price / 1000).toFixed(0)}K
+                            {((order.worker_earning ?? order.price) / 1000).toFixed(0)}K
                           </div>
                           <div className="text-xs text-slate-400">so'm</div>
                         </div>

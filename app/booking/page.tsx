@@ -9,6 +9,7 @@ import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { compressImage } from "@/lib/image";
 import { buildPaymentDetails, MANUAL_PAYMENT_METHODS, type AppPaymentSettings } from "@/lib/payment";
+import { workerEarning } from "@/lib/commission";
 import type { PickedLocation } from "@/components/LocationPicker";
 
 const LocationPicker = dynamic(() => import("@/components/LocationPicker"), { ssr: false });
@@ -26,14 +27,12 @@ export default function BookingPage() {
   const { t } = useLanguage();
 
   const services = [
-    { id: "express", name: t("booking.expressName"), desc: t("booking.expressDesc"), price: 49000, duration: "30–45 min", icon: "⚡",
+    { id: "express", name: t("booking.expressName"), desc: t("booking.expressDesc"), price: 200000, duration: "30–45 min", icon: "⚡",
       includes: ["Exterior wash", "Window clean", "Tire shine", "Air freshener"], color: "blue" },
-    { id: "premium", name: t("booking.premiumName"), desc: t("booking.premiumDesc"), price: 99000, duration: "60–75 min", icon: "✨",
-      includes: ["All Express +", "Interior vacuum", "Dashboard polish", "Door jambs", "Before/after photos"], popular: true, color: "purple" },
-    { id: "elite", name: t("booking.eliteName"), desc: t("booking.eliteDesc"), price: 199000, duration: "2–3 hours", icon: "💎",
+    { id: "premium", name: t("booking.premiumName"), desc: t("booking.premiumDesc"), price: 320000, duration: "60–75 min", icon: "✨",
+      includes: ["All Standard +", "Interior vacuum", "Dashboard polish", "Door jambs", "Before/after photos"], popular: true, color: "purple" },
+    { id: "elite", name: t("booking.eliteName"), desc: t("booking.eliteDesc"), price: 450000, duration: "2–3 hours", icon: "💎",
       includes: ["All Premium +", "Clay bar treatment", "Leather conditioning", "Engine bay", "Odor elimination", "AI health report"], color: "cyan" },
-    { id: "eco", name: t("booking.ecoName"), desc: t("booking.ecoDesc"), price: 59000, duration: "45–60 min", icon: "🌿",
-      includes: ["Waterless exterior", "Micro-fiber polish", "UV protection", "Eco certificate"], color: "green" },
   ];
 
   const addons = [
@@ -187,6 +186,7 @@ export default function BookingPage() {
       service_type:   service.name,
       status:         "pending",
       price:          total,
+      worker_earning: workerEarning(service.id, service.price + addonTotal),
       location_name:  pickedLocation?.address ?? "",
       notes:          selectedAddons.length > 0 ? selectedAddons.join(", ") : null,
       scheduled_at:   selectedTime === "Now (ASAP)" ? new Date().toISOString() : null,

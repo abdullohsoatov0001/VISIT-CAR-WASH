@@ -348,25 +348,25 @@ function PricingSection() {
   const plans = [
     {
       nameKey: "landing.planExpressName", descKey: "landing.planExpressDesc",
-      price: "49 000", popular: false, color: "default",
+      price: "200 000", popular: false, color: "default",
       features: ["Exterior wash & dry", "Window cleaning", "Tire shine", "Up to 45 min", "Basic tracking"],
     },
     {
       nameKey: "landing.planPremiumName", descKey: "landing.planPremiumDesc",
-      price: "99 000", popular: true, color: "blue",
+      price: "320 000", popular: true, color: "blue",
       features: ["Full exterior + interior", "Salon vacuuming", "Window cleaning", "Dashboard polish", "Before/After photos", "Live tracking"],
     },
     {
       nameKey: "landing.planEliteName", descKey: "landing.planEliteDesc",
-      price: "199 000", popular: false, color: "purple",
+      price: "450 000", popular: false, color: "purple",
       features: ["Full wash", "Chemical interior clean", "Fragrance treatment", "Polish & shine", "Before/After photos", "Dedicated specialist"],
     },
   ];
 
   const subscriptions = [
-    { nameKey: "Starter", washes: 4, price: "159 000", savings: "20%", icon: <Droplets className="w-5 h-5" />, color: "default", perks: ["4 Basic washes/month", "Schedule in advance", "Free rescheduling"] },
-    { nameKey: "Pro", washes: 8, price: "279 000", savings: "35%", icon: <Star className="w-5 h-5" />, color: "blue", perks: ["8 Premium washes/month", "Priority booking", "Before/After photos", "Monthly car report"] },
-    { nameKey: "Black", washes: 12, price: "449 000", savings: "50%", icon: <Award className="w-5 h-5" />, color: "purple", perks: ["12 VIP washes/month", "VIP specialists only", "Tire & battery check", "Concierge support"] },
+    { nameKey: "Starter", washes: 4, price: "640 000", savings: "20%", icon: <Droplets className="w-5 h-5" />, color: "default", perks: ["4 Standard washes/month", "Schedule in advance", "Free rescheduling"] },
+    { nameKey: "Pro", washes: 8, price: "1 664 000", savings: "35%", icon: <Star className="w-5 h-5" />, color: "blue", perks: ["8 Premium washes/month", "Priority booking", "Before/After photos", "Monthly car report"] },
+    { nameKey: "Black", washes: 12, price: "2 700 000", savings: "50%", icon: <Award className="w-5 h-5" />, color: "purple", perks: ["12 VIP washes/month", "VIP specialists only", "Tire & battery check", "Concierge support"] },
   ];
 
   return (
@@ -560,8 +560,8 @@ function AppPreviewSection() {
                 <div className="h-32 rounded-2xl bg-gradient-to-br from-brand-blue/10 to-brand-purple/8 border border-brand-blue/10 flex items-center justify-center mb-3">
                   <motion.div animate={{ rotate: [0, 5, -5, 0] }} transition={{ duration: 4, repeat: Infinity }}><div className="text-5xl">🚗</div></motion.div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  {["Express", "Premium", "Detail", "Eco"].map((s) => (
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {["Standard", "Premium", "VIP"].map((s) => (
                     <div key={s} className="h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-xs text-slate-500">{s}</div>
                   ))}
                 </div>

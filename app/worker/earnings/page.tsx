@@ -10,9 +10,14 @@ type Order = {
   order_number: string;
   service_type: string;
   price: number;
+  worker_earning: number | null;
   completed_at: string | null;
   created_at: string;
 };
+
+// Старые заказы (до введения комиссии) не имеют worker_earning — для них
+// считаем как раньше, по полной цене, чтобы не пересчитывать историю задним числом
+const earningOf = (o: Order) => o.worker_earning ?? o.price;
 
 type Payout = {
   id: string;
@@ -57,7 +62,7 @@ export default function WorkerEarningsPage() {
         supabase.from("profiles").select("name, card_number").eq("id", user.id).single(),
         supabase
           .from("orders")
-          .select("id, order_number, service_type, price, completed_at, created_at")
+          .select("id, order_number, service_type, price, worker_earning, completed_at, created_at")
           .eq("worker_id", user.id)
           .eq("status", "completed")
           .order("completed_at", { ascending: false }),
@@ -93,7 +98,7 @@ export default function WorkerEarningsPage() {
     return () => { supabase.removeChannel(channel); };
   }, [workerId]);
 
-  const totalEarnings = orders.reduce((s, o) => s + o.price, 0);
+  const totalEarnings = orders.reduce((s, o) => s + earningOf(o), 0);
   const totalOrders   = orders.length;
   const avgPerOrder   = totalOrders > 0 ? Math.round(totalEarnings / totalOrders) : 0;
   const requestedTotal = payouts.filter(p => p.status !== "rejected").reduce((s, p) => s + p.amount, 0);
@@ -145,7 +150,7 @@ export default function WorkerEarningsPage() {
   // Group by day for chart
   const byDay = orders.reduce<Record<string, number>>((acc, o) => {
     const day = formatDate(o.completed_at ?? o.created_at);
-    acc[day] = (acc[day] ?? 0) + o.price;
+    acc[day] = (acc[day] ?? 0) + earningOf(o);
     return acc;
   }, {});
   const chartData = Object.entries(byDay).slice(0, 7).reverse();
@@ -231,7 +236,7 @@ export default function WorkerEarningsPage() {
                   <div className="text-sm font-semibold text-slate-900">{o.service_type}</div>
                   <div className="text-xs text-slate-400">{o.order_number} · {formatDate(o.completed_at ?? o.created_at)}</div>
                 </div>
-                <div className="text-sm font-bold text-emerald-600">+{formatPrice(o.price)} so'm</div>
+                <div className="text-sm font-bold text-emerald-600">+{formatPrice(earningOf(o))} so'm</div>
               </motion.div>
             ))}
           </div>

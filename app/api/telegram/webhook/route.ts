@@ -2,15 +2,15 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { tgSendMessage, tgAnswerCallbackQuery, tgDownloadFile } from "@/lib/telegram";
 import { buildPaymentDetails, MANUAL_PAYMENT_METHODS } from "@/lib/payment";
+import { workerEarning } from "@/lib/commission";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 
-const servicePrices: Record<string, number> = { express: 49000, premium: 99000, detail: 199000, eco: 59000 };
+const servicePrices: Record<string, number> = { express: 200000, premium: 320000, detail: 450000 };
 const services: Record<string, { name: string; icon: string }> = {
-  express: { name: "Express Wash", icon: "⚡" },
-  premium: { name: "Premium Wash", icon: "✨" },
-  detail:  { name: "Detail Wash",  icon: "💎" },
-  eco:     { name: "Eco Wash",     icon: "🌿" },
+  express: { name: "Standard Wash", icon: "⚡" },
+  premium: { name: "Premium Wash",  icon: "✨" },
+  detail:  { name: "VIP Wash",      icon: "💎" },
 };
 
 function admin() {
@@ -119,6 +119,7 @@ async function createOrderAndReply(
     service_type: svc.name,
     status: "pending",
     price: servicePrices[serviceId],
+    worker_earning: workerEarning(serviceId, servicePrices[serviceId]),
     location_name: locationName,
     client_lat: lat,
     client_lng: lng,
