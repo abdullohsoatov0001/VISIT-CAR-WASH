@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Plus, Star, MapPin, X, User, Mail, Lock, Phone, Eye, EyeOff, AlertCircle, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { isValidUzPhone } from "@/lib/phone";
 
 type Worker = {
   id: string;
@@ -124,9 +125,10 @@ export default function AdminWorkersPage() {
     e.preventDefault();
     setFormError("");
 
-    if (!name.trim())        { setFormError("Введите имя"); return; }
-    if (!email.trim())       { setFormError("Введите email"); return; }
-    if (password.length < 6) { setFormError("Пароль минимум 6 символов"); return; }
+    if (!name.trim())          { setFormError("Введите имя"); return; }
+    if (!phone.trim())         { setFormError("Введите телефон — мойщик входит по нему"); return; }
+    if (!isValidUzPhone(phone)) { setFormError("Введите номер в формате +998 9X XXX XX XX"); return; }
+    if (password.length < 6)   { setFormError("Пароль минимум 6 символов"); return; }
 
     setSaving(true);
     const res = await fetch("/api/admin/create-worker", {
@@ -295,26 +297,28 @@ export default function AdminWorkersPage() {
                   </div>
                 </div>
 
-                {/* Email */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Email *</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                      placeholder="worker@example.com"
-                      className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all" />
-                  </div>
-                </div>
-
                 {/* Phone */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Телефон <span className="text-slate-300 normal-case font-normal">(необязательно)</span>
+                    Телефон * <span className="text-slate-300 normal-case font-normal">(для входа)</span>
                   </label>
                   <div className="relative">
                     <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
                       placeholder="+998901234567"
+                      className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all" />
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Email <span className="text-slate-300 normal-case font-normal">(необязательно)</span>
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                      placeholder="worker@example.com"
                       className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all" />
                   </div>
                 </div>
