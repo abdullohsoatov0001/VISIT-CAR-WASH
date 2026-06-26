@@ -18,7 +18,7 @@ const plans = [
     type: "Standard Washes",
     color: "default",
     perks: [
-      "4 Express washes per month",
+      "4 Standard washes per month",
       "Schedule up to 7 days in advance",
       "Free rescheduling (24h notice)",
       "Real-time GPS tracking",

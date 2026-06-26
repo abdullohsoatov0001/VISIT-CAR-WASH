@@ -27,10 +27,9 @@ type Order = {
 };
 
 const quickServices = [
-  { id: "express", icon: "⚡", label: "Express", price: "49K", color: "bg-brand-blue/10 border-brand-blue/20 text-brand-blue", time: "~30 min" },
-  { id: "premium", icon: "✨", label: "Premium", price: "99K", color: "bg-brand-purple/10 border-brand-purple/20 text-brand-purple", time: "~60 min" },
-  { id: "detail", icon: "💎", label: "Detail", price: "199K", color: "bg-cyan-50 border-cyan-200 text-cyan-600", time: "~120 min" },
-  { id: "eco", icon: "🌿", label: "Eco", price: "59K", color: "bg-emerald-50 border-emerald-200 text-emerald-600", time: "~45 min" },
+  { id: "express", icon: "⚡", label: "Standard", price: "200K", color: "bg-brand-blue/10 border-brand-blue/20 text-brand-blue", time: "~30 min" },
+  { id: "premium", icon: "✨", label: "Premium", price: "320K", color: "bg-brand-purple/10 border-brand-purple/20 text-brand-purple", time: "~60 min" },
+  { id: "detail", icon: "💎", label: "VIP", price: "450K", color: "bg-cyan-50 border-cyan-200 text-cyan-600", time: "~120 min" },
 ];
 
 function formatDate(iso: string) {
@@ -134,7 +133,7 @@ export default function UserDashboard() {
               {t("dashboard.seeAll")} <ChevronRight className="w-3 h-3" />
             </Link>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {quickServices.map((s, i) => (
               <motion.div key={s.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }}
                 whileHover={{ y: -3, scale: 1.02 }} whileTap={{ scale: 0.97 }}

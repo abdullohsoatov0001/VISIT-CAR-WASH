@@ -7,9 +7,9 @@ import { useUserContext } from "@/lib/context/UserContext";
 import { getLoyaltyInfo } from "@/lib/hooks/useUser";
 
 const rewardsCatalog = [
-  { icon: "☕", title: "Free Express Wash",          desc: "Redeem 500 points",  points: 500 },
+  { icon: "☕", title: "Free Standard Wash",          desc: "Redeem 500 points",  points: 500 },
   { icon: "✨", title: "Premium Wash Upgrade",        desc: "Redeem 1,200 points", points: 1200 },
-  { icon: "💎", title: "Elite Detail Discount 30%",   desc: "Redeem 2,000 points", points: 2000 },
+  { icon: "💎", title: "VIP Detail Discount 30%",     desc: "Redeem 2,000 points", points: 2000 },
   { icon: "🎁", title: "One Month Pro",               desc: "Redeem 5,000 points", points: 5000 },
 ];
 
