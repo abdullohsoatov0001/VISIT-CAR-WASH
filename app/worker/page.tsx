@@ -400,7 +400,11 @@ export default function WorkerDashboard() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="text-xl font-black text-emerald-600">{((activeOrder.worker_earning ?? activeOrder.price) / 1000).toFixed(0)}K</div>
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">so&apos;m</div>
+                  {activeOrder.worker_earning != null && activeOrder.worker_earning !== activeOrder.price ? (
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">из {(activeOrder.price / 1000).toFixed(0)}K so&apos;m</div>
+                  ) : (
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">so&apos;m</div>
+                  )}
                 </div>
               </div>
 
@@ -637,10 +641,14 @@ export default function WorkerDashboard() {
                           <div className="text-xs text-slate-400">{order.order_number}</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-lg font-black text-slate-900">
+                          <div className="text-lg font-black text-emerald-600">
                             {((order.worker_earning ?? order.price) / 1000).toFixed(0)}K
                           </div>
-                          <div className="text-xs text-slate-400">so'm</div>
+                          {order.worker_earning != null && order.worker_earning !== order.price ? (
+                            <div className="text-xs text-slate-400">из {(order.price / 1000).toFixed(0)}K so'm</div>
+                          ) : (
+                            <div className="text-xs text-slate-400">so'm</div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1 text-xs text-slate-400 mb-4">
