@@ -58,6 +58,8 @@ type Order = {
   created_at: string;
   accepted_at: string | null;
   started_at: string | null;
+  rejected_by: string[] | null;
+  address_label: string | null;
 };
 
 export default function WorkerDashboard() {
@@ -74,6 +76,7 @@ export default function WorkerDashboard() {
   const [cancelling, setCancelling]     = useState(false);
   const [showCashConfirm, setShowCashConfirm] = useState(false);
   const [confirmingCash, setConfirmingCash] = useState(false);
+  const [myCoords, setMyCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const firstName = profile?.name?.split(" ")[0] ?? "Мойщик";
   const initials  = profile ? getInitials(profile.name) : "…";
@@ -99,6 +102,7 @@ export default function WorkerDashboard() {
           .from("orders")
           .select("*")
           .eq("status", "pending")
+          .not("rejected_by", "cs", `{${workerId}}`)
           .order("created_at", { ascending: false })
           .limit(50),
       ]);
@@ -161,6 +165,14 @@ export default function WorkerDashboard() {
     return startWorkerLocationSharing(activeOrder.id);
   }, [activeOrder?.id, activeOrder?.status]);
 
+  // Своя позиция — чтобы показать расстояние до каждого заказа ДО принятия
+  useEffect(() => {
+    if (!online) { setMyCoords(null); return; }
+    getClientCoords().then(setMyCoords);
+    const id = setInterval(() => { getClientCoords().then(setMyCoords); }, 60000);
+    return () => clearInterval(id);
+  }, [online]);
+
   const toggleOnline = async () => {
     if (!profile?.id || toggling) return;
     setToggling(true);
@@ -203,7 +215,12 @@ export default function WorkerDashboard() {
     notifyTelegram(order.id, "accepted");
   };
 
-  const rejectOrder = (id: string) => setPending(prev => prev.filter(o => o.id !== id));
+  const rejectOrder = async (id: string) => {
+    if (!profile) return;
+    setPending(prev => prev.filter(o => o.id !== id));
+    const supabase = createClient();
+    await supabase.rpc("reject_order", { p_order_id: id, p_worker_id: profile.id });
+  };
 
   const startNavigation = async () => {
     if (!activeOrder) return;
@@ -659,9 +676,24 @@ export default function WorkerDashboard() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 text-xs text-slate-400 mb-4">
-                        <MapPin className="w-3 h-3" />
-                        {order.location_name || "Адрес не указан"}
+                      <div className="flex items-center gap-1 text-xs text-slate-400 mb-1">
+                        <MapPin className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">{order.location_name || "Адрес не указан"}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-4">
+                        {order.address_label && (
+                          <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
+                            {order.address_label}
+                          </span>
+                        )}
+                        {myCoords && order.client_lat != null && order.client_lng != null && (() => {
+                          const eta = formatEta(myCoords.lat, myCoords.lng, order.client_lat, order.client_lng);
+                          return (
+                            <span className="text-[11px] bg-brand-blue/10 text-brand-blue px-2 py-0.5 rounded-full font-semibold">
+                              {eta.km} · ~{eta.mins} мин до клиента
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => rejectOrder(order.id)}

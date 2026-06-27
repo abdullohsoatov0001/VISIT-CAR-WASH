@@ -188,6 +188,7 @@ export default function BookingPage() {
       price:          total,
       worker_earning: workerEarning(service.id, service.price + addonTotal),
       location_name:  pickedLocation?.address ?? "",
+      address_label:  savedAddresses.find(a => a.id === selectedLocation)?.label ?? null,
       notes:          selectedAddons.length > 0 ? selectedAddons.join(", ") : null,
       scheduled_at:   selectedTime === "Now (ASAP)" ? new Date().toISOString() : null,
       client_lat:     pickedLocation?.lat ?? null,

@@ -1,6 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
 import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import {
@@ -13,6 +15,8 @@ import {
 import Navbar from "@/components/layout/Navbar";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase/client";
+import { roleRedirect } from "@/lib/hooks/useUser";
 
 /* ───────────────────── HELPERS ───────────────────── */
 const colorMap: Record<string, string> = {
@@ -663,6 +667,35 @@ function Footer() {
 
 /* ───────────────────── PAGE ───────────────────── */
 export default function LandingPage() {
+  const router = useRouter();
+  // Синхронно, без I/O — на native сразу true, на web сразу false, без мигания контента
+  const [isNative] = useState(() => typeof window !== "undefined" && Capacitor.isNativePlatform());
+
+  // В APK маркетинговый лендинг не нужен: залогиненных сразу уводим в их раздел,
+  // остальных — на онбординг-слайды → регистрацию/вход
+  useEffect(() => {
+    if (!isNative) return;
+    (async () => {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data } = await supabase.from("profiles").select("role").eq("id", session.user.id).single();
+        router.replace(roleRedirect(data?.role ?? "USER"));
+        return;
+      }
+      const seen = typeof window !== "undefined" && localStorage.getItem("washgo_onboarded");
+      router.replace(seen ? "/login" : "/onboarding");
+    })();
+  }, [isNative, router]);
+
+  if (isNative) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-[#F8FAFF]">
+        <div className="w-8 h-8 border-2 border-brand-blue border-t-transparent rounded-full animate-spin" />
+      </main>
+    );
+  }
+
   return (
     <main className="relative">
       <Navbar />
