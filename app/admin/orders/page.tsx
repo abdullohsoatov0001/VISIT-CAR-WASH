@@ -30,8 +30,16 @@ type Order = {
   review_text: string | null;
   before_photos: string[] | null;
   after_photos: string[] | null;
+  cancel_reason: string | null;
+  rejected_by: string[] | null;
   client_name?: string;
   client_phone?: string | null;
+  rejected_names?: string[];
+};
+
+const CANCEL_REASON_LABELS: Record<string, string> = {
+  no_worker_timeout: "Не нашёлся мойщик за 5 часов",
+  all_rejected: "Все доступные мойщики отклонили",
 };
 
 const statusBadge: Record<string, string> = {
@@ -57,6 +65,7 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Order | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -64,12 +73,13 @@ export default function AdminOrdersPage() {
     async function load() {
       const { data: orderRows } = await supabase
         .from("orders")
-        .select("id, order_number, user_id, service_type, worker_name, location_name, price, status, created_at, accepted_at, started_at, notes, scheduled_at, completed_at, payment_method, payment_status, receipt_url, user_rating, worker_rating, review_text, before_photos, after_photos")
+        .select("id, order_number, user_id, service_type, worker_name, location_name, price, status, created_at, accepted_at, started_at, notes, scheduled_at, completed_at, payment_method, payment_status, receipt_url, user_rating, worker_rating, review_text, before_photos, after_photos, cancel_reason, rejected_by")
         .order("created_at", { ascending: false })
         .limit(100);
 
       const rows = orderRows ?? [];
       const userIds = Array.from(new Set(rows.map((o) => o.user_id)));
+      const rejectedIds = Array.from(new Set(rows.flatMap((o) => o.rejected_by ?? [])));
       let names: Record<string, string> = {};
       let phones: Record<string, string | null> = {};
       if (userIds.length > 0) {
@@ -77,8 +87,18 @@ export default function AdminOrdersPage() {
         names = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.name]));
         phones = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.phone]));
       }
+      let rejectedNames: Record<string, string> = {};
+      if (rejectedIds.length > 0) {
+        const { data: rejProfiles } = await supabase.from("profiles").select("id, name").in("id", rejectedIds);
+        rejectedNames = Object.fromEntries((rejProfiles ?? []).map((p) => [p.id, p.name]));
+      }
 
-      setOrders(rows.map((o) => ({ ...o, client_name: names[o.user_id] ?? "—", client_phone: phones[o.user_id] ?? null })));
+      setOrders(rows.map((o) => ({
+        ...o,
+        client_name: names[o.user_id] ?? "—",
+        client_phone: phones[o.user_id] ?? null,
+        rejected_names: (o.rejected_by ?? []).map((id: string) => rejectedNames[id] ?? id),
+      })));
       setLoading(false);
     }
 
@@ -95,6 +115,14 @@ export default function AdminOrdersPage() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  const restoreOrder = async (id: string) => {
+    setRestoring(true);
+    const supabase = createClient();
+    await supabase.rpc("restore_order", { p_order_id: id });
+    setRestoring(false);
+    setSelected(null);
+  };
 
   const filtered = orders.filter((o) => {
     const matchSearch = !search || o.client_name?.toLowerCase().includes(search.toLowerCase()) || o.order_number.toLowerCase().includes(search.toLowerCase());
@@ -227,6 +255,16 @@ export default function AdminOrdersPage() {
                     </a>
                   </div>
                 )}
+                {selected.status === "cancelled" && selected.cancel_reason && (
+                  <div className="flex justify-between"><span className="text-slate-400">Причина отмены</span>
+                    <span className="font-medium text-red-500 text-right">{CANCEL_REASON_LABELS[selected.cancel_reason] ?? selected.cancel_reason}</span>
+                  </div>
+                )}
+                {(selected.rejected_names?.length ?? 0) > 0 && (
+                  <div className="flex justify-between"><span className="text-slate-400">Отклонили</span>
+                    <span className="font-medium text-slate-700 text-right">{selected.rejected_names!.join(", ")}</span>
+                  </div>
+                )}
                 <div className="flex justify-between"><span className="text-slate-400">Создан</span><span className="font-medium text-slate-900">{new Date(selected.created_at).toLocaleString("ru-RU")}</span></div>
                 {selected.accepted_at && (
                   <div className="flex justify-between"><span className="text-slate-400">Принят мойщиком</span><span className="font-medium text-slate-900">{new Date(selected.accepted_at).toLocaleString("ru-RU")}</span></div>
@@ -287,6 +325,13 @@ export default function AdminOrdersPage() {
                   </div>
                 )}
               </div>
+
+              {selected.status === "cancelled" && selected.cancel_reason && CANCEL_REASON_LABELS[selected.cancel_reason] && (
+                <button onClick={() => restoreOrder(selected.id)} disabled={restoring}
+                  className="w-full h-11 mt-5 rounded-xl bg-brand-blue text-white text-sm font-semibold disabled:opacity-60 transition-all">
+                  {restoring ? "Восстанавливаем…" : "Вернуть в ожидающие заказы"}
+                </button>
+              )}
             </motion.div>
           </motion.div>
         )}

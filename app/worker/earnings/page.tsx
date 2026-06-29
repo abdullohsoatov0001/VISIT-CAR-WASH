@@ -12,6 +12,7 @@ type Order = {
   service_type: string;
   price: number;
   worker_earning: number | null;
+  payment_method: string | null;
   completed_at: string | null;
   created_at: string;
 };
@@ -63,7 +64,7 @@ export default function WorkerEarningsPage() {
         supabase.from("profiles").select("name, card_number").eq("id", user.id).single(),
         supabase
           .from("orders")
-          .select("id, order_number, service_type, price, worker_earning, completed_at, created_at")
+          .select("id, order_number, service_type, price, worker_earning, payment_method, completed_at, created_at")
           .eq("worker_id", user.id)
           .eq("status", "completed")
           .order("completed_at", { ascending: false }),
@@ -103,7 +104,15 @@ export default function WorkerEarningsPage() {
   const totalOrders   = orders.length;
   const avgPerOrder   = totalOrders > 0 ? Math.round(totalEarnings / totalOrders) : 0;
   const requestedTotal = payouts.filter(p => p.status !== "rejected").reduce((s, p) => s + p.amount, 0);
-  const availableBalance = Math.max(0, totalEarnings - requestedTotal);
+
+  // Карточные/Click/Payme заказы — деньги получила компания, она должна мойщику его долю.
+  // Наличные — мойщик уже забрал всю сумму себе, поэтому компании он должен разницу (комиссию).
+  // Доступный баланс — это одно сальдо, а не два отдельных счёта.
+  const cardEarnings = orders.filter(o => o.payment_method !== "cash").reduce((s, o) => s + earningOf(o), 0);
+  const cashCommissionOwed = orders.filter(o => o.payment_method === "cash").reduce((s, o) => s + (o.price - earningOf(o)), 0);
+  const netBalance = cardEarnings - cashCommissionOwed - requestedTotal;
+  const availableBalance = Math.max(0, netBalance);
+  const debtOwed = Math.max(0, -netBalance);
 
   const handleWithdraw = async () => {
     setWithdrawError("");
@@ -177,6 +186,14 @@ export default function WorkerEarningsPage() {
           <ArrowDownToLine className="w-4 h-4" /> Вывести
         </button>
       </motion.div>
+
+      {debtOwed > 0 && (
+        <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-600">
+          <span className="font-bold">Вы должны компании {formatPrice(debtOwed)} so'm</span>
+          <span className="text-red-500"> — комиссия с наличных заказов больше вашего карточного заработка. Передайте сумму администратору или дождитесь новых карточных заказов — спишется автоматически.</span>
+        </motion.div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-3">

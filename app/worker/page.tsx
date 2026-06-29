@@ -135,9 +135,13 @@ export default function WorkerDashboard() {
       }, (payload) => {
         const updated = payload.new as Order;
 
-        // Убираем из pending если уже не ожидает
         if (updated.status !== "pending") {
+          // Убираем из pending если уже не ожидает
           setPending(prev => prev.filter(o => o.id !== updated.id));
+        } else if (!(updated.rejected_by ?? []).includes(profile.id)) {
+          // Стал pending (напр. админ восстановил отменённый заказ) — добавляем,
+          // если этот мойщик его не отклонял
+          setPending(prev => prev.some(o => o.id === updated.id) ? prev.map(o => o.id === updated.id ? updated : o) : [updated, ...prev]);
         }
 
         // Этот мойщик принял заказ
