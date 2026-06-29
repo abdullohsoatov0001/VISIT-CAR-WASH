@@ -37,7 +37,7 @@ language plpgsql
 security definer
 as $$
 declare
-  v_timeout interval := interval '15 minutes';
+  v_timeout interval := interval '5 hours';
   v_order record;
 begin
   for v_order in
@@ -56,7 +56,7 @@ begin
       v_order.user_id,
       'order',
       'Заказ отменён',
-      format('Не нашлось свободного мойщика для заказа %s в течение 15 минут. Попробуйте создать заказ ещё раз.', v_order.order_number)
+      format('Не нашлось свободного мойщика для заказа %s в течение 5 часов. Попробуйте создать заказ ещё раз.', v_order.order_number)
     );
 
     -- Push-уведомление через наш API (если у клиента есть push_token — иначе тихо пропустится)
@@ -77,8 +77,8 @@ $$;
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 
--- 7. Планируем запуск раз в 5 минут
+-- 7. Планируем запуск раз в 30 минут (таймаут — 5 часов, чаще проверять не нужно)
 select cron.unschedule('expire-stale-orders') where exists (
   select 1 from cron.job where jobname = 'expire-stale-orders'
 );
-select cron.schedule('expire-stale-orders', '*/5 * * * *', 'select public.expire_stale_orders()');
+select cron.schedule('expire-stale-orders', '*/30 * * * *', 'select public.expire_stale_orders()');
