@@ -42,6 +42,7 @@ export default function AdminWorkersPage() {
   const [showModal, setShowModal] = useState(false);
   const [ratings, setRatings]     = useState<Record<string, { avg: number; count: number }>>({});
   const [reviewsByWorker, setReviewsByWorker] = useState<Record<string, Review[]>>({});
+  const [debtByWorker, setDebtByWorker] = useState<Record<string, number>>({});
   const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
 
   // Form state
@@ -103,7 +104,48 @@ export default function AdminWorkersPage() {
     setRatings(Object.fromEntries(Object.entries(sums).map(([id, s]) => [id, { avg: s.total / s.count, count: s.count }])));
   }
 
-  useEffect(() => { fetchWorkers(); fetchReviews(); }, []);
+  // Долг мойщика по наличным: с наличных заказов он забрал всю сумму себе,
+  // значит должен компании комиссию (price - worker_earning). С карточных —
+  // наоборот, компания должна ему долю. Сальдо тем же способом, что и на
+  // странице заработка мойщика; долг = сколько он должен компании.
+  async function fetchDebts() {
+    const supabase = createClient();
+    const [{ data: orderRows }, { data: payoutRows }] = await Promise.all([
+      supabase
+        .from("orders")
+        .select("worker_id, price, worker_earning, payment_method")
+        .eq("status", "completed")
+        .not("worker_id", "is", null),
+      supabase
+        .from("payout_requests")
+        .select("worker_id, amount, status"),
+    ]);
+
+    const card: Record<string, number> = {};
+    const cashCommission: Record<string, number> = {};
+    for (const o of (orderRows ?? []) as any[]) {
+      const earning = o.worker_earning ?? o.price;
+      if (o.payment_method === "cash") {
+        cashCommission[o.worker_id] = (cashCommission[o.worker_id] ?? 0) + (o.price - earning);
+      } else {
+        card[o.worker_id] = (card[o.worker_id] ?? 0) + earning;
+      }
+    }
+    const requested: Record<string, number> = {};
+    for (const p of (payoutRows ?? []) as any[]) {
+      if (p.status !== "rejected") requested[p.worker_id] = (requested[p.worker_id] ?? 0) + p.amount;
+    }
+
+    const debts: Record<string, number> = {};
+    const ids = Array.from(new Set([...Object.keys(card), ...Object.keys(cashCommission)]));
+    for (const id of ids) {
+      const net = (card[id] ?? 0) - (cashCommission[id] ?? 0) - (requested[id] ?? 0);
+      if (net < 0) debts[id] = -net;
+    }
+    setDebtByWorker(debts);
+  }
+
+  useEffect(() => { fetchWorkers(); fetchReviews(); fetchDebts(); }, []);
 
   const filtered = workers.filter(w =>
     !search || w.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -377,6 +419,12 @@ export default function AdminWorkersPage() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
+              {(debtByWorker[selectedWorker.id] ?? 0) > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4 text-sm">
+                  <span className="font-bold text-red-600">Долг по наличным: {debtByWorker[selectedWorker.id].toLocaleString("ru-RU")} so'm</span>
+                  <span className="text-red-500"> — комиссия с наличных заказов, которую мойщик должен компании.</span>
+                </div>
+              )}
               <div className="space-y-3">
                 {(reviewsByWorker[selectedWorker.id] ?? []).map((r, i) => (
                   <div key={i} className="border border-slate-100 rounded-xl p-3">

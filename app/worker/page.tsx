@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
@@ -62,6 +62,32 @@ type Order = {
   address_label: string | null;
 };
 
+// Сумма заказа для карточек мойщика: если worker_earning отличается от полной
+// цены — показываем обе строки ("Заказ X / Вам Y"), иначе одну. variant задаёт
+// только размеры под конкретную карточку (активный заказ крупнее списка).
+function OrderAmount({ price, workerEarning, variant }: { price: number; workerEarning: number | null; variant: "active" | "pending" }) {
+  const k = (n: number) => `${(n / 1000).toFixed(0)}K`;
+  const hasCut = workerEarning != null && workerEarning !== price;
+  const fullCls = variant === "active" ? "text-[10px] text-slate-400 uppercase tracking-wide font-semibold" : "text-xs text-slate-400";
+  const earnCls = variant === "active" ? "text-lg font-black text-emerald-600" : "text-base font-black text-emerald-600";
+  const soloCls = variant === "active" ? "text-xl font-black text-emerald-600" : "text-lg font-black text-slate-900";
+
+  if (hasCut) {
+    return (
+      <>
+        <div className={fullCls}>Заказ {k(price)} so&apos;m</div>
+        <div className={earnCls}>Вам {k(workerEarning!)}</div>
+      </>
+    );
+  }
+  return (
+    <>
+      <div className={soloCls}>{k(price)}</div>
+      <div className={fullCls}>so&apos;m</div>
+    </>
+  );
+}
+
 export default function WorkerDashboard() {
   const { profile } = useUserContext();
 
@@ -77,6 +103,10 @@ export default function WorkerDashboard() {
   const [showCashConfirm, setShowCashConfirm] = useState(false);
   const [confirmingCash, setConfirmingCash] = useState(false);
   const [myCoords, setMyCoords] = useState<{ lat: number; lng: number } | null>(null);
+  // Заказы, которые этот мойщик явно отклонил в этой сессии. Нужен, чтобы
+  // realtime-UPDATE (гонка с нашим же reject RPC) не "воскресил" отклонённый
+  // заказ, пока сервер ещё не дописал нас в rejected_by.
+  const rejectedIds = useRef<Set<string>>(new Set());
 
   const firstName = profile?.name?.split(" ")[0] ?? "Мойщик";
   const initials  = profile ? getInitials(profile.name) : "…";
@@ -135,13 +165,19 @@ export default function WorkerDashboard() {
       }, (payload) => {
         const updated = payload.new as Order;
 
+        const rejectedByMe = (updated.rejected_by ?? []).includes(profile.id) || rejectedIds.current.has(updated.id);
+
         if (updated.status !== "pending") {
           // Убираем из pending если уже не ожидает
           setPending(prev => prev.filter(o => o.id !== updated.id));
-        } else if (!(updated.rejected_by ?? []).includes(profile.id)) {
+        } else if (!rejectedByMe) {
           // Стал pending (напр. админ восстановил отменённый заказ) — добавляем,
           // если этот мойщик его не отклонял
+          rejectedIds.current.delete(updated.id);
           setPending(prev => prev.some(o => o.id === updated.id) ? prev.map(o => o.id === updated.id ? updated : o) : [updated, ...prev]);
+        } else {
+          // Отклонён нами — гарантированно держим вне списка
+          setPending(prev => prev.filter(o => o.id !== updated.id));
         }
 
         // Этот мойщик принял заказ
@@ -221,9 +257,21 @@ export default function WorkerDashboard() {
 
   const rejectOrder = async (id: string) => {
     if (!profile) return;
+    rejectedIds.current.add(id);
     setPending(prev => prev.filter(o => o.id !== id));
     const supabase = createClient();
-    await supabase.rpc("reject_order", { p_order_id: id, p_worker_id: profile.id });
+    const { error } = await supabase.rpc("reject_order", { p_order_id: id, p_worker_id: profile.id });
+    if (error) {
+      // Не сохранилось — снимаем метку и возвращаем заказ, чтобы не потерять его молча
+      rejectedIds.current.delete(id);
+      const { data } = await supabase.from("orders").select("*").eq("id", id).eq("status", "pending").maybeSingle();
+      if (data) setPending(prev => prev.some(o => o.id === id) ? prev : [data as Order, ...prev]);
+    } else {
+      // Успех: сервер записал отклонение в rejected_by — локальная метка-защита
+      // от гонки больше не нужна. Дальше видимость определяет серверный
+      // rejected_by (в т.ч. корректно вернёт заказ, если админ его восстановит).
+      rejectedIds.current.delete(id);
+    }
   };
 
   const startNavigation = async () => {
@@ -420,17 +468,7 @@ export default function WorkerDashboard() {
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  {activeOrder.worker_earning != null && activeOrder.worker_earning !== activeOrder.price ? (
-                    <>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">Заказ {(activeOrder.price / 1000).toFixed(0)}K so&apos;m</div>
-                      <div className="text-lg font-black text-emerald-600">Вам {(activeOrder.worker_earning / 1000).toFixed(0)}K</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-xl font-black text-emerald-600">{(activeOrder.price / 1000).toFixed(0)}K</div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold">so&apos;m</div>
-                    </>
-                  )}
+                  <OrderAmount price={activeOrder.price} workerEarning={activeOrder.worker_earning} variant="active" />
                 </div>
               </div>
 
@@ -667,17 +705,7 @@ export default function WorkerDashboard() {
                           <div className="text-xs text-slate-400">{order.order_number}</div>
                         </div>
                         <div className="text-right">
-                          {order.worker_earning != null && order.worker_earning !== order.price ? (
-                            <>
-                              <div className="text-xs text-slate-400">Заказ {(order.price / 1000).toFixed(0)}K so'm</div>
-                              <div className="text-base font-black text-emerald-600">Вам {(order.worker_earning / 1000).toFixed(0)}K</div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="text-lg font-black text-slate-900">{(order.price / 1000).toFixed(0)}K</div>
-                              <div className="text-xs text-slate-400">so'm</div>
-                            </>
-                          )}
+                          <OrderAmount price={order.price} workerEarning={order.worker_earning} variant="pending" />
                         </div>
                       </div>
                       <div className="flex items-center gap-1 text-xs text-slate-400 mb-1">

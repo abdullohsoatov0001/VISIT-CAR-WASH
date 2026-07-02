@@ -116,11 +116,18 @@ export default function AdminOrdersPage() {
     };
   }, []);
 
+  const [restoreError, setRestoreError] = useState("");
+
   const restoreOrder = async (id: string) => {
     setRestoring(true);
+    setRestoreError("");
     const supabase = createClient();
-    await supabase.rpc("restore_order", { p_order_id: id });
+    const { error } = await supabase.rpc("restore_order", { p_order_id: id });
     setRestoring(false);
+    if (error) {
+      setRestoreError("Не удалось восстановить заказ. Обновите страницу и попробуйте снова.");
+      return;
+    }
     setSelected(null);
   };
 
@@ -326,11 +333,14 @@ export default function AdminOrdersPage() {
                 )}
               </div>
 
-              {selected.status === "cancelled" && selected.cancel_reason && CANCEL_REASON_LABELS[selected.cancel_reason] && (
-                <button onClick={() => restoreOrder(selected.id)} disabled={restoring}
-                  className="w-full h-11 mt-5 rounded-xl bg-brand-blue text-white text-sm font-semibold disabled:opacity-60 transition-all">
-                  {restoring ? "Восстанавливаем…" : "Вернуть в ожидающие заказы"}
-                </button>
+              {selected.status === "cancelled" && (
+                <div className="mt-5">
+                  <button onClick={() => restoreOrder(selected.id)} disabled={restoring}
+                    className="w-full h-11 rounded-xl bg-brand-blue text-white text-sm font-semibold disabled:opacity-60 transition-all">
+                    {restoring ? "Восстанавливаем…" : "Вернуть в ожидающие заказы"}
+                  </button>
+                  {restoreError && <p className="text-xs text-red-500 mt-2 text-center">{restoreError}</p>}
+                </div>
               )}
             </motion.div>
           </motion.div>

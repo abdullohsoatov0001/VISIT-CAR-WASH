@@ -668,13 +668,16 @@ function Footer() {
 /* ───────────────────── PAGE ───────────────────── */
 export default function LandingPage() {
   const router = useRouter();
-  // Синхронно, без I/O — на native сразу true, на web сразу false, без мигания контента
-  const [isNative] = useState(() => typeof window !== "undefined" && Capacitor.isNativePlatform());
+  // Начинаем с false, чтобы первый клиентский рендер совпал с SSR (лендинг) и
+  // не было hydration mismatch. Определяем native уже ПОСЛЕ монтирования — на
+  // web остаётся false навсегда, на native мгновенно уводит с лендинга.
+  const [isNative, setIsNative] = useState(false);
 
   // В APK маркетинговый лендинг не нужен: залогиненных сразу уводим в их раздел,
   // остальных — на онбординг-слайды → регистрацию/вход
   useEffect(() => {
-    if (!isNative) return;
+    if (!Capacitor.isNativePlatform()) return;
+    setIsNative(true);
     (async () => {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
@@ -683,10 +686,10 @@ export default function LandingPage() {
         router.replace(roleRedirect(data?.role ?? "USER"));
         return;
       }
-      const seen = typeof window !== "undefined" && localStorage.getItem("washgo_onboarded");
+      const seen = localStorage.getItem("washgo_onboarded");
       router.replace(seen ? "/login" : "/onboarding");
     })();
-  }, [isNative, router]);
+  }, [router]);
 
   if (isNative) {
     return (
