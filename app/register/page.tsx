@@ -13,6 +13,10 @@ export default function RegisterPage() {
   const router   = useRouter();
   const supabase = createClient();
 
+  // Регистрация по SMS-коду — основной способ (профиль создаётся триггером
+  // handle_new_user из метаданных name/role). Пароль оставлен запасным, пока
+  // Eskiz (реальная отправка SMS) не подключён.
+  const [mode, setMode]         = useState<"otp" | "password">("otp");
   const [name, setName]         = useState("");
   const [phone, setPhone]       = useState("");
   const [password, setPassword] = useState("");
@@ -26,10 +30,32 @@ export default function RegisterPage() {
 
     if (!name.trim())          { setError("Введите имя"); return; }
     if (!isValidUzPhone(phone)) { setError("Введите номер телефона полностью"); return; }
-    if (password.length < 6)    { setError("Пароль минимум 6 символов"); return; }
 
     setLoading(true);
     const phoneDigits = normalizePhoneDigits(phone);
+
+    if (mode === "otp") {
+      // shouldCreateUser: true — создаём аккаунт при подтверждении кода;
+      // имя/роль уйдут в user_metadata, профиль создаст триггер handle_new_user
+      const { error: err } = await supabase.auth.signInWithOtp({
+        phone: toE164(phone),
+        options: { shouldCreateUser: true, data: { name: name.trim(), role: "USER" } },
+      });
+      setLoading(false);
+      if (err) {
+        if (err.message?.toLowerCase().match(/sms|sending|provider|twilio/)) {
+          setError("Не удалось отправить SMS-код. Пока можно зарегистрироваться по паролю (ниже).");
+        } else {
+          setError(err.message || `Ошибка регистрации (код ${err.status ?? "?"})`);
+        }
+        return;
+      }
+      router.push(`/verify?method=phone&contact=${encodeURIComponent(toE164(phone))}&mode=signup`);
+      return;
+    }
+
+    // Запасной способ — по паролю
+    if (password.length < 6) { setLoading(false); setError("Пароль минимум 6 символов"); return; }
 
     const { data, error: err } = await supabase.auth.signUp({
       phone: toE164(phone),
@@ -113,29 +139,40 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* Password */}
-            <div className="relative">
-              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type={showPass ? "text" : "password"} value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Пароль (мин. 6 символов)"
-                className="w-full h-12 pl-10 pr-12 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all"
-              />
-              <button type="button" onClick={() => setShowPass(!showPass)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
+            {/* Password — только в запасном режиме */}
+            {mode === "password" && (
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type={showPass ? "text" : "password"} value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Пароль (мин. 6 символов)"
+                  className="w-full h-12 pl-10 pr-12 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-300 text-sm focus:outline-none focus:border-brand-blue/50 focus:bg-white transition-all"
+                />
+                <button type="button" onClick={() => setShowPass(!showPass)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            )}
+
+            {mode === "otp" && (
+              <p className="text-xs text-slate-400">Мы отправим SMS с кодом для подтверждения номера.</p>
+            )}
 
             <motion.button type="submit" disabled={loading}
               whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
               className="w-full h-12 rounded-xl bg-brand-blue text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60 shadow-md mt-1">
               {loading
-                ? <><svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Создаём…</>
-                : <>Создать аккаунт <ArrowRight className="w-4 h-4" /></>
+                ? <><svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> {mode === "otp" ? "Отправляем…" : "Создаём…"}</>
+                : <>{mode === "otp" ? "Получить код" : "Создать аккаунт"} <ArrowRight className="w-4 h-4" /></>
               }
             </motion.button>
+
+            <button type="button" onClick={() => { setMode(mode === "otp" ? "password" : "otp"); setError(""); }}
+              className="w-full text-center text-xs text-slate-400 hover:text-brand-blue transition-colors">
+              {mode === "otp" ? "Зарегистрироваться по паролю" : "Зарегистрироваться по SMS-коду"}
+            </button>
           </form>
 
           <p className="text-center text-xs text-slate-400 mt-4 leading-relaxed">
