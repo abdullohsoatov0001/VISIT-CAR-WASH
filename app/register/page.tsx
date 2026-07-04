@@ -16,7 +16,9 @@ export default function RegisterPage() {
   // Регистрация по SMS-коду — основной способ (профиль создаётся триггером
   // handle_new_user из метаданных name/role). Пароль оставлен запасным, пока
   // Eskiz (реальная отправка SMS) не подключён.
-  const [mode, setMode]         = useState<"otp" | "password">("otp");
+  // Пока Eskiz не в боевом режиме, SMS-коды не доходят — по умолчанию пароль.
+  // Когда SMS заработают, вернуть "otp".
+  const [mode, setMode]         = useState<"otp" | "password">("password");
   const [name, setName]         = useState("");
   const [phone, setPhone]       = useState("");
   const [password, setPassword] = useState("");

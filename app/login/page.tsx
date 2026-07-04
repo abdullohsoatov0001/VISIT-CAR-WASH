@@ -16,7 +16,9 @@ export default function LoginPage() {
   // Вход по SMS-коду — основной способ. Пароль оставлен запасным, пока Eskiz
   // (реальная отправка SMS) не подключён — иначе без работающих кодов войти
   // будет нельзя. Когда SMS заработают, режим password можно убрать.
-  const [mode, setMode]         = useState<"otp" | "password">("otp");
+  // Пока Eskiz не в боевом режиме, SMS-коды не доходят — по умолчанию пароль.
+  // Когда SMS заработают, вернуть "otp".
+  const [mode, setMode]         = useState<"otp" | "password">("password");
   const [phone, setPhone]       = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
