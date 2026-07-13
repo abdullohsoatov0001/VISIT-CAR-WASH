@@ -57,10 +57,6 @@ function normalizePhone(raw: string) {
   return raw.replace(/\D/g, "");
 }
 
-function isValidEmail(s: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
-
 function randomPassword() {
   return Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 8).toUpperCase();
 }
@@ -274,7 +270,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // Обычный текст — выбор услуги постоянной кнопкой, шаги регистрации (имя → email), либо подсказка
+  // Обычный текст — выбор услуги постоянной кнопкой, шаг регистрации (имя), либо подсказка
   if (message?.text && !message.text.startsWith("/")) {
     const chatId = message.chat.id as number;
 
@@ -293,42 +289,32 @@ export async function POST(req: NextRequest) {
 
     if (pendingReg?.step === "name") {
       const name = message.text.trim().slice(0, 80);
-      await db.from("telegram_registrations").update({ name, step: "email" }).eq("chat_id", chatId);
-      await tgSendMessage(chatId, `Приятно познакомиться, ${name}! Теперь укажите email — он понадобится, чтобы заходить и на сайт.`);
-      return NextResponse.json({ ok: true });
-    }
 
-    if (pendingReg?.step === "email") {
-      const email = message.text.trim().toLowerCase();
-      if (!isValidEmail(email)) {
-        await tgSendMessage(chatId, "Это не похоже на email. Введите, например, name@example.com");
-        return NextResponse.json({ ok: true });
-      }
-
+      // Регистрация по телефону — email больше не нужен (весь проект на телефоне).
+      // Номер уже подтверждён (пользователь поделился контактом), поэтому создаём
+      // аккаунт сразу: телефон + имя + случайный пароль для входа на сайте.
       const password = randomPassword();
       const { data: created, error: createError } = await db.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
         phone: pendingReg.phone,
         phone_confirm: true,
-        user_metadata: { name: pendingReg.name, role: "USER" },
+        password,
+        user_metadata: { name, role: "USER" },
       });
 
       if (createError || !created.user) {
-        const msg = createError?.message?.includes("already been registered")
-          ? "Этот email уже зарегистрирован. Войдите на сайте под этим email и привяжите свой номер телефона в настройках."
-          : "Не удалось создать аккаунт. Попробуйте другой email.";
-        await tgSendMessage(chatId, msg);
+        const msg = /already.*registered|already been registered/i.test(createError?.message ?? "")
+          ? "Этот номер уже зарегистрирован. Нажмите «Поделиться номером», чтобы войти."
+          : "Не удалось создать аккаунт. Попробуйте снова: /menu";
+        await tgSendMessage(chatId, msg, contactKeyboard);
         return NextResponse.json({ ok: true });
       }
 
-      await db.from("profiles").update({ name: pendingReg.name, phone: pendingReg.phone, telegram_chat_id: chatId }).eq("id", created.user.id);
+      await db.from("profiles").update({ name, phone: pendingReg.phone, telegram_chat_id: chatId }).eq("id", created.user.id);
       await db.from("telegram_registrations").delete().eq("chat_id", chatId);
 
       await tgSendMessage(
         chatId,
-        `Аккаунт создан! Добро пожаловать, ${pendingReg.name} 🎉\n\nДанные для входа на сайт:\nEmail: <code>${email}</code>\nПароль: <code>${password}</code>\n\nРекомендуем сменить пароль в Настройках на сайте.`
+        `Аккаунт создан! Добро пожаловать, ${name} 🎉\n\nДанные для входа на сайт:\nТелефон: <code>+${pendingReg.phone}</code>\nПароль: <code>${password}</code>\n\nРекомендуем сменить пароль в Настройках на сайте.`
       );
       await tgSendMessage(chatId, "Выберите услугу 👇", mainKeyboard);
       return NextResponse.json({ ok: true });
