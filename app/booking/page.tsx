@@ -240,8 +240,8 @@ export default function BookingPage() {
       <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl border-b border-slate-200 px-4 sm:px-6 py-4 shadow-sm">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Link href="/dashboard">
-            <button className="flex items-center gap-2 text-slate-400 hover:text-slate-700 transition-colors text-sm">
-              <ArrowLeft className="w-4 h-4" /> {t("common.back")}
+            <button aria-label={t("common.back")} className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+              <ArrowLeft className="w-5 h-5" />
             </button>
           </Link>
           <div className="flex items-center gap-1">
@@ -507,9 +507,9 @@ export default function BookingPage() {
         <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-200 p-4 safe-bottom shadow-lg">
           <div className="max-w-3xl mx-auto flex gap-3">
             {step > 0 && (
-              <button onClick={() => setStep(s => s - 1)}
-                className="h-12 px-5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-900 hover:border-slate-300 flex items-center gap-2 text-sm transition-all bg-white">
-                <ArrowLeft className="w-4 h-4" /> {t("common.back")}
+              <button onClick={() => setStep(s => s - 1)} aria-label={t("common.back")}
+                className="h-12 w-12 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-900 hover:border-slate-300 flex items-center justify-center transition-all bg-white">
+                <ArrowLeft className="w-5 h-5" />
               </button>
             )}
             <motion.button whileHover={{ scale: 1.01, boxShadow: "0 0 30px rgba(14,165,233,0.3)" }} whileTap={{ scale: 0.98 }}

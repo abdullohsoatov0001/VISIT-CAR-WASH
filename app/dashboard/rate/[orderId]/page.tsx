@@ -79,8 +79,8 @@ export default function RateOrderPage({ params }: { params: { orderId: string } 
 
   return (
     <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-5">
-      <button onClick={() => router.push("/dashboard/history")} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 transition-colors">
-        <ArrowLeft className="w-4 h-4" /> Назад
+      <button onClick={() => router.push("/dashboard/history")} aria-label="Назад" className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+        <ArrowLeft className="w-5 h-5" />
       </button>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
