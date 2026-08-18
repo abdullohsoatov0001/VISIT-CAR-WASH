@@ -179,7 +179,10 @@ export async function POST(req: NextRequest) {
 
     const phone = normalizePhone(message.contact.phone_number);
 
-    const { data: existing } = await db.from("profiles").select("id, name, role").eq("phone", phone).maybeSingle();
+    // Номер в profiles исторически мог сохраниться и как "998…", и как "+998…" —
+    // ищем по обоим вариантам, чтобы повторный вход всегда находил аккаунт.
+    const { data: existingRows } = await db.from("profiles").select("id, name, role").in("phone", [phone, "+" + phone]).limit(1);
+    const existing = existingRows?.[0];
 
     if (existing) {
       if (existing.role !== "USER") {
@@ -312,10 +315,7 @@ export async function POST(req: NextRequest) {
       await db.from("profiles").update({ name, phone: pendingReg.phone, telegram_chat_id: chatId }).eq("id", created.user.id);
       await db.from("telegram_registrations").delete().eq("chat_id", chatId);
 
-      await tgSendMessage(
-        chatId,
-        `Аккаунт создан! Добро пожаловать, ${name} 🎉\n\nДанные для входа на сайт:\nТелефон: <code>+${pendingReg.phone}</code>\nПароль: <code>${password}</code>\n\nРекомендуем сменить пароль в Настройках на сайте.`
-      );
+      await tgSendMessage(chatId, `Готово, ${name}! Добро пожаловать в Wash Go 🎉 Вы вошли.`, { remove_keyboard: true });
       await tgSendMessage(chatId, "Выберите услугу 👇", mainKeyboard);
       return NextResponse.json({ ok: true });
     }
