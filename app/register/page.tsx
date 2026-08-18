@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Droplets, User, Phone, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from "lucide-react";
+import { Droplets, User, Phone, Lock, Eye, EyeOff, ArrowRight, ArrowLeft, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { roleRedirect } from "@/lib/hooks/useUser";
 import { isValidUzPhone, normalizePhoneDigits, toE164 } from "@/lib/phone";
@@ -98,6 +98,11 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
+
+        <button onClick={() => router.back()} aria-label="Назад"
+          className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors mb-6">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
 
         <Link href="/" className="inline-flex items-center gap-2 mb-8">
           <div className="w-8 h-8 rounded-xl bg-brand-blue/10 border border-brand-blue/20 flex items-center justify-center">
