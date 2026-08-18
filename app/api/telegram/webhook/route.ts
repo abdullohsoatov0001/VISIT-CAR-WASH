@@ -305,10 +305,24 @@ export async function POST(req: NextRequest) {
       });
 
       if (createError || !created.user) {
-        const msg = /already.*registered|already been registered/i.test(createError?.message ?? "")
-          ? "Этот номер уже зарегистрирован. Нажмите «Поделиться номером», чтобы войти."
-          : "Не удалось создать аккаунт. Попробуйте снова: /menu";
-        await tgSendMessage(chatId, msg, contactKeyboard);
+        // Всегда убираем незавершённую регистрацию, чтобы не застрять в цикле
+        await db.from("telegram_registrations").delete().eq("chat_id", chatId);
+
+        // Номер уже зарегистрирован — не ругаемся, а просто входим
+        if (/already.*registered|already been registered|phone.*exists/i.test(createError?.message ?? "")) {
+          const { data: rows } = await db.from("profiles").select("id, name, role").in("phone", [pendingReg.phone, "+" + pendingReg.phone]).limit(1);
+          const prof = rows?.[0];
+          if (prof && prof.role === "USER") {
+            await db.from("profiles").update({ telegram_chat_id: chatId }).eq("id", prof.id);
+            await tgSendMessage(chatId, `С возвращением, ${prof.name}! Вы вошли ✅`, { remove_keyboard: true });
+            await tgSendMessage(chatId, "Выберите услугу 👇", mainKeyboard);
+          } else {
+            await tgSendMessage(chatId, "Этот номер уже используется в системе. Нажмите «Поделиться номером», чтобы войти.", contactKeyboard);
+          }
+          return NextResponse.json({ ok: true });
+        }
+
+        await tgSendMessage(chatId, "Не удалось создать аккаунт. Попробуйте снова: /menu", contactKeyboard);
         return NextResponse.json({ ok: true });
       }
 
