@@ -185,8 +185,14 @@ export async function POST(req: NextRequest) {
     const existing = existingRows?.[0];
 
     if (existing) {
+      // Админ подключает Telegram — сюда будут падать уведомления о новых заказах
+      if (existing.role === "ADMIN") {
+        await db.from("profiles").update({ telegram_chat_id: chatId }).eq("id", existing.id);
+        await tgSendMessage(chatId, `Здравствуйте, ${existing.name}! Вы вошли как администратор — сюда будут приходить уведомления о каждом новом заказе 🔔`, { remove_keyboard: true });
+        return NextResponse.json({ ok: true });
+      }
       if (existing.role !== "USER") {
-        await tgSendMessage(chatId, "Этот номер привязан к аккаунту мойщика/администратора. Заказы через бота доступны только клиентам.", { remove_keyboard: true });
+        await tgSendMessage(chatId, "Этот номер привязан к аккаунту мойщика. Заказы через бота доступны только клиентам.", { remove_keyboard: true });
         return NextResponse.json({ ok: true });
       }
       await db.from("profiles").update({ telegram_chat_id: chatId }).eq("id", existing.id);
