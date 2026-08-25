@@ -144,6 +144,61 @@ async function createOrderAndReply(
   );
 }
 
+const workerStatusLabel: Record<string, string> = {
+  accepted: "Принят — выезжайте к клиенту",
+  en_route: "Вы в пути",
+  in_progress: "Мойка идёт",
+};
+
+type WorkerOrder = {
+  id: string; order_number: string; service_type: string; price: number;
+  location_name: string | null; client_phone: string | null; status: string;
+  client_lat: number | null; client_lng: number | null; before_photos: string[] | null; user_id: string;
+};
+
+const WORKER_ORDER_FIELDS = "id, order_number, service_type, price, location_name, client_phone, status, client_lat, client_lng, before_photos, user_id, worker_id";
+
+// Карточка активного заказа мойщика с кнопками по текущему статусу
+async function sendWorkerOrderCard(chatId: number, order: WorkerOrder) {
+  const nav = order.client_lat != null && order.client_lng != null
+    ? `\n🧭 <a href="https://yandex.uz/maps/?rtext=~${order.client_lat},${order.client_lng}&rtt=auto">Открыть навигацию</a>`
+    : "";
+  const text =
+    `📦 <b>Заказ ${order.order_number}</b>\n` +
+    `${order.service_type} — <b>${Number(order.price).toLocaleString("ru-RU")} so'm</b>\n` +
+    `📍 ${order.location_name || "адрес не указан"}\n` +
+    `👤 Клиент: ${order.client_phone || "—"}\n` +
+    `Статус: <b>${workerStatusLabel[order.status] ?? order.status}</b>` + nav;
+
+  const rows: { text: string; callback_data: string }[][] = [];
+  if (order.status === "accepted") rows.push([{ text: "🚗 Я в пути", callback_data: `wen:${order.id}` }]);
+  if (order.status === "en_route") rows.push([{ text: "🧼 Начать мойку", callback_data: `wst:${order.id}` }]);
+  if (order.status === "in_progress") {
+    if (!(order.before_photos?.length)) rows.push([{ text: "📸 Отправьте фото ДО (пришлите фото)", callback_data: `wref:${order.id}` }]);
+    rows.push([{ text: "✅ Завершить заказ", callback_data: `wdn:${order.id}` }]);
+  }
+  rows.push([{ text: "🔄 Обновить", callback_data: `wref:${order.id}` }]);
+  await tgSendMessage(chatId, text, { inline_keyboard: rows });
+}
+
+async function showWorkerActiveOrder(db: ReturnType<typeof admin>, chatId: number, workerId: string) {
+  const { data: order } = await db.from("orders").select(WORKER_ORDER_FIELDS)
+    .eq("worker_id", workerId).in("status", ["accepted", "en_route", "in_progress"])
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!order) {
+    await tgSendMessage(chatId, "У вас нет активных заказов. Когда вам назначат заказ — он появится здесь.");
+    return;
+  }
+  await sendWorkerOrderCard(chatId, order as unknown as WorkerOrder);
+}
+
+// Уведомить клиента: в приложении + в Telegram, если подключён
+async function notifyClient(db: ReturnType<typeof admin>, userId: string, title: string, body: string) {
+  await db.from("notifications").insert({ user_id: userId, type: "order", title, body });
+  const { data: cli } = await db.from("profiles").select("telegram_chat_id").eq("id", userId).maybeSingle();
+  if (cli?.telegram_chat_id) await tgSendMessage(cli.telegram_chat_id as number, `${title}\n${body}`);
+}
+
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
   if (secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
@@ -192,8 +247,11 @@ export async function POST(req: NextRequest) {
         await tgSendMessage(chatId, `Здравствуйте, ${existing.name}! Вы вошли как администратор — сюда будут приходить уведомления о каждом новом заказе 🔔`, { remove_keyboard: true });
         return NextResponse.json({ ok: true });
       }
-      if (existing.role !== "USER") {
-        await tgSendMessage(chatId, "Этот номер привязан к аккаунту мойщика. Заказы через бота доступны только клиентам.", { remove_keyboard: true });
+      // Мойщик подключается — сюда приходят его заказы, и он ведёт их прямо в боте
+      if (existing.role === "WORKER") {
+        await db.from("profiles").update({ telegram_chat_id: chatId }).eq("id", existing.id);
+        await tgSendMessage(chatId, `Здравствуйте, ${existing.name}! Вы вошли как мойщик 👷 Заказы будут приходить сюда.`, { remove_keyboard: true });
+        await showWorkerActiveOrder(db, chatId, existing.id);
         return NextResponse.json({ ok: true });
       }
       await db.from("profiles").update({ telegram_chat_id: chatId }).eq("id", existing.id);
@@ -210,10 +268,14 @@ export async function POST(req: NextRequest) {
   // /start или /menu
   if (message?.text === "/start" || message?.text === "/menu") {
     const chatId = message.chat.id as number;
-    const { data: profile } = await db.from("profiles").select("id").eq("telegram_chat_id", chatId).maybeSingle();
+    const { data: profile } = await db.from("profiles").select("id, role").eq("telegram_chat_id", chatId).maybeSingle();
 
     if (!profile) {
       await promptContact(chatId);
+    } else if (profile.role === "WORKER") {
+      await showWorkerActiveOrder(db, chatId, profile.id);
+    } else if (profile.role === "ADMIN") {
+      await tgSendMessage(chatId, "Вы админ 🔔 Уведомления о новых заказах приходят сюда — назначайте мойщика прямо из них.", { remove_keyboard: true });
     } else {
       await tgSendMessage(chatId, "Выберите услугу 👇", mainKeyboard);
     }
@@ -245,6 +307,38 @@ export async function POST(req: NextRequest) {
   // Фото чека — последний шаг ручной оплаты (карта/Click/Payme)
   if (message?.photo) {
     const chatId = message.chat.id as number;
+    const photoArr = message.photo as { file_id: string }[];
+    const bestFileId = photoArr[photoArr.length - 1].file_id;
+
+    // Фото от мойщика — «до / после» мойки
+    const { data: worker } = await db.from("profiles").select("id, role").eq("telegram_chat_id", chatId).maybeSingle();
+    if (worker?.role === "WORKER") {
+      const { data: active } = await db.from("orders")
+        .select("id, before_photos, after_photos, status, user_id")
+        .eq("worker_id", worker.id).in("status", ["en_route", "in_progress"])
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (active) {
+        let url: string;
+        try {
+          const bytes = await tgDownloadFile(bestFileId);
+          const path = `${active.id}/${Date.now()}.jpg`;
+          const { error: upErr } = await db.storage.from("wash-photos").upload(path, bytes, { contentType: "image/jpeg" });
+          if (upErr) throw upErr;
+          url = db.storage.from("wash-photos").getPublicUrl(path).data.publicUrl;
+        } catch {
+          await tgSendMessage(chatId, "Не удалось сохранить фото, попробуйте ещё раз.");
+          return NextResponse.json({ ok: true });
+        }
+        if (!(active.before_photos?.length)) {
+          await db.from("orders").update({ before_photos: [url], status: "in_progress" }).eq("id", active.id);
+          await tgSendMessage(chatId, "✅ Фото ДО сохранено. Помойте машину, пришлите фото ПОСЛЕ, затем нажмите «Завершить заказ».");
+        } else {
+          await db.from("orders").update({ after_photos: [...(active.after_photos ?? []), url] }).eq("id", active.id);
+          await tgSendMessage(chatId, "✅ Фото ПОСЛЕ сохранено. Можно отправить ещё или нажать «Завершить заказ».");
+        }
+        return NextResponse.json({ ok: true });
+      }
+    }
 
     const { data: pending } = await db.from("telegram_pending_orders").select("*").eq("chat_id", chatId).maybeSingle();
     if (!pending || pending.step !== "receipt" || !pending.payment_method) {
@@ -397,8 +491,52 @@ export async function POST(req: NextRequest) {
       body: `${worker.name} назначен на ваш заказ ${order.order_number} и скоро будет в пути.`,
     });
     if (worker.telegram_chat_id) {
-      await tgSendMessage(worker.telegram_chat_id as number, `🚗 Вам назначен заказ <b>${order.order_number}</b> — ${order.service_type}. Откройте приложение, чтобы начать.`);
+      await tgSendMessage(worker.telegram_chat_id as number, `🚗 Вам назначен новый заказ <b>${order.order_number}</b>!`);
+      await showWorkerActiveOrder(db, worker.telegram_chat_id as number, worker.id as string);
     }
+    return NextResponse.json({ ok: true });
+  }
+
+  // Мойщик ведёт заказ прямо в боте: в пути → начать → завершить
+  if (callback?.data && /^(wen|wst|wdn|wref):/.test(callback.data)) {
+    const chatId = callback.message.chat.id as number;
+    const [action, orderId] = callback.data.split(":");
+
+    const { data: worker } = await db.from("profiles").select("id, role").eq("telegram_chat_id", chatId).maybeSingle();
+    if (!worker || worker.role !== "WORKER") {
+      await tgAnswerCallbackQuery(callback.id, "Доступно только мойщику");
+      return NextResponse.json({ ok: true });
+    }
+    const { data: orderRaw } = await db.from("orders").select(WORKER_ORDER_FIELDS).eq("id", orderId).maybeSingle();
+    const order = orderRaw as unknown as (WorkerOrder & { worker_id: string | null }) | null;
+    if (!order || order.worker_id !== worker.id) {
+      await tgAnswerCallbackQuery(callback.id, "Заказ не ваш или не найден");
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "wen" && order.status === "accepted") {
+      await db.from("orders").update({ status: "en_route" }).eq("id", orderId);
+      order.status = "en_route";
+      await notifyClient(db, order.user_id, "Мойщик в пути 🚗", `Мойщик выехал к вам по заказу ${order.order_number}.`);
+      await tgAnswerCallbackQuery(callback.id, "Статус: в пути");
+    } else if (action === "wst" && order.status === "en_route") {
+      await db.from("orders").update({ status: "in_progress", started_at: new Date().toISOString() }).eq("id", orderId);
+      order.status = "in_progress";
+      await notifyClient(db, order.user_id, "Мойка началась 🧼", `Мойщик приступил к заказу ${order.order_number}.`);
+      await tgAnswerCallbackQuery(callback.id, "Мойка началась");
+      await tgSendMessage(chatId, "📸 Отправьте фото <b>ДО</b> мойки — просто пришлите фото сюда.");
+    } else if (action === "wdn" && order.status === "in_progress") {
+      await db.from("orders").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", orderId);
+      await notifyClient(db, order.user_id, "Мойка завершена ✨", `Заказ ${order.order_number} выполнен. Оцените мойщика в приложении!`);
+      await tgAnswerCallbackQuery(callback.id, "Заказ завершён");
+      await tgSendMessage(chatId, `✅ Заказ <b>${order.order_number}</b> завершён. Спасибо за работу!`);
+      return NextResponse.json({ ok: true });
+    } else if (action === "wref") {
+      await tgAnswerCallbackQuery(callback.id);
+    } else {
+      await tgAnswerCallbackQuery(callback.id, "Сейчас это действие недоступно");
+    }
+    await sendWorkerOrderCard(chatId, order as WorkerOrder);
     return NextResponse.json({ ok: true });
   }
 
