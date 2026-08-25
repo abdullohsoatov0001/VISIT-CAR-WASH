@@ -351,6 +351,56 @@ export async function POST(req: NextRequest) {
 
   const callback = update.callback_query;
 
+  // Админ назначает заказ мойщику прямо из уведомления в Telegram
+  if (callback?.data?.startsWith("asg:")) {
+    const chatId = callback.message.chat.id as number;
+    const [, orderId, workerPrefix] = callback.data.split(":");
+
+    const { data: adminProf } = await db.from("profiles").select("id, role").eq("telegram_chat_id", chatId).maybeSingle();
+    if (!adminProf || adminProf.role !== "ADMIN") {
+      await tgAnswerCallbackQuery(callback.id, "Доступно только администратору");
+      return NextResponse.json({ ok: true });
+    }
+
+    const { data: order } = await db.from("orders").select("id, order_number, service_type, status, user_id").eq("id", orderId).maybeSingle();
+    if (!order) {
+      await tgAnswerCallbackQuery(callback.id, "Заказ не найден");
+      return NextResponse.json({ ok: true });
+    }
+    if (order.status !== "pending") {
+      await tgAnswerCallbackQuery(callback.id, "Заказ уже принят или отменён");
+      return NextResponse.json({ ok: true });
+    }
+
+    const { data: workers } = await db.from("profiles").select("id, name, phone, telegram_chat_id").eq("role", "WORKER");
+    const worker = (workers ?? []).find((w) => (w.id as string).startsWith(workerPrefix));
+    if (!worker) {
+      await tgAnswerCallbackQuery(callback.id, "Мойщик не найден");
+      return NextResponse.json({ ok: true });
+    }
+
+    const { data: upd } = await db.from("orders")
+      .update({ worker_id: worker.id, worker_name: worker.name, worker_phone: worker.phone, status: "accepted", accepted_at: new Date().toISOString() })
+      .eq("id", orderId).eq("status", "pending").select("id").maybeSingle();
+    if (!upd) {
+      await tgAnswerCallbackQuery(callback.id, "Заказ уже приняли");
+      return NextResponse.json({ ok: true });
+    }
+
+    await tgAnswerCallbackQuery(callback.id, `Назначено: ${worker.name}`);
+    await tgSendMessage(chatId, `✅ Заказ <b>${order.order_number}</b> назначен мойщику: <b>${worker.name}</b>`);
+
+    // Уведомляем клиента (в приложении) и мойщика в Telegram, если он подключён
+    await db.from("notifications").insert({
+      user_id: order.user_id, type: "order", title: "Мойщик назначен!",
+      body: `${worker.name} назначен на ваш заказ ${order.order_number} и скоро будет в пути.`,
+    });
+    if (worker.telegram_chat_id) {
+      await tgSendMessage(worker.telegram_chat_id as number, `🚗 Вам назначен заказ <b>${order.order_number}</b> — ${order.service_type}. Откройте приложение, чтобы начать.`);
+    }
+    return NextResponse.json({ ok: true });
+  }
+
   // Выбор сохранённого адреса
   if (callback?.data?.startsWith("addr:")) {
     const chatId = callback.message.chat.id as number;

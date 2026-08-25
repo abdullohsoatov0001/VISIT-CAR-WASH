@@ -76,7 +76,7 @@ export default function AdminOrdersPage() {
   // Список мойщиков — для ручного назначения заказа админом
   useEffect(() => {
     const supabase = createClient();
-    supabase.from("profiles").select("id, name, phone, is_active").eq("role", "WORKER").order("is_active", { ascending: false }).order("name")
+    supabase.from("profiles").select("id, name, phone, is_active").eq("role", "WORKER").order("name")
       .then(({ data }) => setWorkers(data ?? []));
   }, []);
 
@@ -386,8 +386,8 @@ export default function AdminOrdersPage() {
                             <div className="text-sm font-semibold text-slate-900 truncate">{w.name}</div>
                             {w.phone && <div className="text-xs text-slate-400">{w.phone}</div>}
                           </div>
-                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${w.is_active ? "bg-emerald-50 text-emerald-600 border border-emerald-200" : "bg-slate-100 text-slate-400"}`}>
-                            {assigningId === w.id ? "…" : w.is_active ? "в сети" : "офлайн"}
+                          <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full flex-shrink-0 bg-brand-blue/10 text-brand-blue border border-brand-blue/20">
+                            {assigningId === w.id ? "…" : "Назначить"}
                           </span>
                         </button>
                       ))}

@@ -44,7 +44,13 @@ export async function POST(req: NextRequest) {
     `👤 ${client?.name ?? "клиент"}${order.client_phone ? " · " + order.client_phone : ""}\n` +
     `${pay}`;
 
-  await Promise.all(admins.map((a) => tgSendMessage(a.telegram_chat_id as number, text)));
+  // Кнопки: назначить заказ конкретному мойщику прямо из Telegram.
+  // callback_data = "asg:<orderId>:<первые 8 символов id мойщика>" (укладываемся в лимит 64 байт)
+  const { data: allWorkers } = await db.from("profiles").select("id, name").eq("role", "WORKER").order("name");
+  const buttons = (allWorkers ?? []).map((w) => [{ text: `👤 Назначить: ${w.name}`, callback_data: `asg:${orderId}:${(w.id as string).slice(0, 8)}` }]);
+  const markup = buttons.length > 0 ? { inline_keyboard: buttons } : undefined;
+
+  await Promise.all(admins.map((a) => tgSendMessage(a.telegram_chat_id as number, text, markup)));
 
   return NextResponse.json({ ok: true, sent: admins.length });
 }
