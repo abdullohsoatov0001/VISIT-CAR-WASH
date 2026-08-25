@@ -6,6 +6,9 @@ import { Search, Filter, Eye, Bell, MapPin, ChevronDown, X, Star } from "lucide-
 import { useLanguage } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { debounce } from "@/lib/utils";
+import { sendPush } from "@/lib/notify";
+
+type WorkerLite = { id: string; name: string; phone: string | null; is_active: boolean };
 
 type Order = {
   id: string;
@@ -66,6 +69,16 @@ export default function AdminOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Order | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [workers, setWorkers] = useState<WorkerLite[]>([]);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState("");
+
+  // Список мойщиков — для ручного назначения заказа админом
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from("profiles").select("id, name, phone, is_active").eq("role", "WORKER").order("is_active", { ascending: false }).order("name")
+      .then(({ data }) => setWorkers(data ?? []));
+  }, []);
 
   useEffect(() => {
     const supabase = createClient();
@@ -128,6 +141,32 @@ export default function AdminOrdersPage() {
       setRestoreError("Не удалось восстановить заказ. Обновите страницу и попробуйте снова.");
       return;
     }
+    setSelected(null);
+  };
+
+  const assignWorker = async (order: Order, worker: WorkerLite) => {
+    setAssigningId(worker.id);
+    setAssignError("");
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("orders")
+      .update({ worker_id: worker.id, worker_name: worker.name, worker_phone: worker.phone, status: "accepted", accepted_at: new Date().toISOString() })
+      .eq("id", order.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+    setAssigningId(null);
+    if (error || !data) {
+      setAssignError("Не удалось назначить — заказ мог уже принять другой мойщик. Обновите страницу.");
+      return;
+    }
+    // Уведомляем клиента и назначенного мойщика
+    await supabase.from("notifications").insert({
+      user_id: order.user_id, type: "order", title: "Мойщик назначен!",
+      body: `${worker.name} назначен на ваш заказ ${order.order_number} и скоро будет в пути.`,
+    });
+    sendPush(order.user_id, "Мойщик назначен!", `${worker.name} назначен на заказ ${order.order_number}.`);
+    sendPush(worker.id, "Новый заказ", `Вам назначен заказ ${order.order_number} — ${order.service_type}.`);
     setSelected(null);
   };
 
@@ -225,7 +264,7 @@ export default function AdminOrdersPage() {
             onClick={() => setSelected(null)}>
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl">
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl max-h-[85vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-5">
                 <div>
                   <div className="text-xs font-semibold text-brand-blue uppercase tracking-wider">Заказ</div>
@@ -332,6 +371,31 @@ export default function AdminOrdersPage() {
                   </div>
                 )}
               </div>
+
+              {selected.status === "pending" && (
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Назначить мойщика</div>
+                  {workers.length === 0 ? (
+                    <p className="text-sm text-slate-400">Мойщиков пока нет</p>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                      {workers.map((w) => (
+                        <button key={w.id} onClick={() => assignWorker(selected, w)} disabled={!!assigningId}
+                          className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border border-slate-200 hover:border-brand-blue/50 hover:bg-brand-blue/5 transition-all disabled:opacity-60 text-left">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-slate-900 truncate">{w.name}</div>
+                            {w.phone && <div className="text-xs text-slate-400">{w.phone}</div>}
+                          </div>
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${w.is_active ? "bg-emerald-50 text-emerald-600 border border-emerald-200" : "bg-slate-100 text-slate-400"}`}>
+                            {assigningId === w.id ? "…" : w.is_active ? "в сети" : "офлайн"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {assignError && <p className="text-xs text-red-500 mt-2">{assignError}</p>}
+                </div>
+              )}
 
               {selected.status === "cancelled" && (
                 <div className="mt-5">
