@@ -205,9 +205,9 @@ export default function PricingPage() {
           <h2 className="text-2xl font-black text-slate-900 text-center mb-8">{t("pricing.oneTime")}</h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
-              { name: "Standard Wash", price: "200 000", icon: "⚡", time: "~30 min" },
-              { name: "Premium Wash", price: "320 000", icon: "✨", time: "~60 min" },
-              { name: "VIP Detail", price: "450 000", icon: "💎", time: "~2 hrs" },
+              { name: "Седан", price: "200 000", icon: "🚗", time: "~30 мин" },
+              { name: "Кроссовер", price: "280 000", icon: "🚙", time: "~40 мин" },
+              { name: "Минивэн", price: "360 000", icon: "🚐", time: "~50 мин" },
             ].map((s, i) => (
               <motion.div key={s.name} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
                 transition={{ delay: i * 0.08 }} whileHover={{ y: -3 }}

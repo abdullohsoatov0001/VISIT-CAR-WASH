@@ -26,13 +26,14 @@ const timeSlots = ["Now (ASAP)", "09:00", "10:00", "11:00", "12:00", "13:00", "1
 export default function BookingPage() {
   const { t } = useLanguage();
 
+  // Цена зависит от типа авто
   const services = [
-    { id: "express", name: t("booking.expressName"), desc: t("booking.expressDesc"), price: 200000, duration: "30–45 min", icon: "⚡",
-      includes: ["Exterior wash", "Window clean", "Tire shine", "Air freshener"], color: "blue" },
-    { id: "premium", name: t("booking.premiumName"), desc: t("booking.premiumDesc"), price: 320000, duration: "60–75 min", icon: "✨",
-      includes: ["All Standard +", "Interior vacuum", "Dashboard polish", "Door jambs", "Before/after photos"], popular: true, color: "purple" },
-    { id: "elite", name: t("booking.eliteName"), desc: t("booking.eliteDesc"), price: 450000, duration: "2–3 hours", icon: "💎",
-      includes: ["All Premium +", "Clay bar treatment", "Leather conditioning", "Engine bay", "Odor elimination", "AI health report"], color: "cyan" },
+    { id: "express", name: "Седан", desc: "Легковой автомобиль", price: 200000, duration: "30–45 мин", icon: "🚗",
+      includes: ["Мойка кузова", "Чистка ковриков", "Пылесос салона", "Протирка стёкол"], color: "blue" },
+    { id: "premium", name: "Кроссовер", desc: "Кроссовер / внедорожник", price: 280000, duration: "40–55 мин", icon: "🚙",
+      includes: ["Мойка кузова", "Чистка ковриков", "Пылесос салона", "Протирка стёкол"], popular: true, color: "purple" },
+    { id: "elite", name: "Минивэн", desc: "Минивэн / микроавтобус", price: 360000, duration: "50–70 мин", icon: "🚐",
+      includes: ["Мойка кузова", "Чистка ковриков", "Пылесос салона", "Протирка стёкол"], color: "cyan" },
   ];
 
   const addons = [

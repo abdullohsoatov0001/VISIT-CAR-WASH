@@ -351,19 +351,19 @@ function PricingSection() {
 
   const plans = [
     {
-      nameKey: "landing.planExpressName", descKey: "landing.planExpressDesc",
+      nameKey: "Седан", descKey: "Легковой автомобиль",
       price: "200 000", popular: false, color: "default",
-      features: ["Exterior wash & dry", "Window cleaning", "Tire shine", "Up to 45 min", "Basic tracking"],
+      features: ["Мойка кузова", "Чистка стёкол", "Чернение шин", "До 45 мин", "Отслеживание"],
     },
     {
-      nameKey: "landing.planPremiumName", descKey: "landing.planPremiumDesc",
-      price: "320 000", popular: true, color: "blue",
-      features: ["Full exterior + interior", "Salon vacuuming", "Window cleaning", "Dashboard polish", "Before/After photos", "Live tracking"],
+      nameKey: "Кроссовер", descKey: "Кроссовер / внедорожник",
+      price: "280 000", popular: true, color: "blue",
+      features: ["Мойка кузова", "Пылесос салона", "Чистка стёкол", "Коврики", "Фото до/после", "Live-трекинг"],
     },
     {
-      nameKey: "landing.planEliteName", descKey: "landing.planEliteDesc",
-      price: "450 000", popular: false, color: "purple",
-      features: ["Full wash", "Chemical interior clean", "Fragrance treatment", "Polish & shine", "Before/After photos", "Dedicated specialist"],
+      nameKey: "Минивэн", descKey: "Минивэн / микроавтобус",
+      price: "360 000", popular: false, color: "purple",
+      features: ["Мойка кузова", "Пылесос салона", "Чистка стёкол", "Коврики", "Фото до/после", "Live-трекинг"],
     },
   ];
 
@@ -565,7 +565,7 @@ function AppPreviewSection() {
                   <motion.div animate={{ rotate: [0, 5, -5, 0] }} transition={{ duration: 4, repeat: Infinity }}><div className="text-5xl">🚗</div></motion.div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mb-3">
-                  {["Standard", "Premium", "VIP"].map((s) => (
+                  {["Седан", "Кроссовер", "Минивэн"].map((s) => (
                     <div key={s} className="h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-xs text-slate-500">{s}</div>
                   ))}
                 </div>

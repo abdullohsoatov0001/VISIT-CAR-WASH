@@ -6,11 +6,12 @@ import { workerEarning } from "@/lib/commission";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 
-const servicePrices: Record<string, number> = { express: 200000, premium: 320000, detail: 450000 };
+// Цена зависит от типа авто (Седан / Кроссовер / Минивэн)
+const servicePrices: Record<string, number> = { express: 200000, premium: 280000, detail: 360000 };
 const services: Record<string, { name: string; icon: string }> = {
-  express: { name: "Standard Wash", icon: "⚡" },
-  premium: { name: "Premium Wash",  icon: "✨" },
-  detail:  { name: "VIP Wash",      icon: "💎" },
+  express: { name: "Седан", icon: "🚗" },
+  premium: { name: "Кроссовер", icon: "🚙" },
+  detail:  { name: "Минивэн", icon: "🚐" },
 };
 
 function admin() {

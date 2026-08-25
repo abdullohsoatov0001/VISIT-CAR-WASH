@@ -27,9 +27,9 @@ type Order = {
 };
 
 const quickServices = [
-  { id: "express", icon: "⚡", label: "Standard", price: "200K", color: "bg-brand-blue/10 border-brand-blue/20 text-brand-blue", time: "~30 min" },
-  { id: "premium", icon: "✨", label: "Premium", price: "320K", color: "bg-brand-purple/10 border-brand-purple/20 text-brand-purple", time: "~60 min" },
-  { id: "detail", icon: "💎", label: "VIP", price: "450K", color: "bg-cyan-50 border-cyan-200 text-cyan-600", time: "~120 min" },
+  { id: "express", icon: "🚗", label: "Седан", price: "200K", color: "bg-brand-blue/10 border-brand-blue/20 text-brand-blue", time: "~30 мин" },
+  { id: "premium", icon: "🚙", label: "Кроссовер", price: "280K", color: "bg-brand-purple/10 border-brand-purple/20 text-brand-purple", time: "~40 мин" },
+  { id: "detail", icon: "🚐", label: "Минивэн", price: "360K", color: "bg-cyan-50 border-cyan-200 text-cyan-600", time: "~50 мин" },
 ];
 
 function formatDate(iso: string) {

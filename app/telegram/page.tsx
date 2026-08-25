@@ -16,12 +16,13 @@ declare global {
   }
 }
 
-const servicePrices: Record<string, number> = { express: 200000, premium: 320000, detail: 450000 };
+// Цена зависит от типа авто
+const servicePrices: Record<string, number> = { express: 200000, premium: 280000, detail: 360000 };
 
 const services = [
-  { id: "express", icon: "⚡", name: "Standard", price: "200 000", time: "~30 min" },
-  { id: "premium", icon: "✨", name: "Premium", price: "320 000", time: "~60 min", popular: true },
-  { id: "detail", icon: "💎", name: "VIP", price: "450 000", time: "~2 hrs" },
+  { id: "express", icon: "🚗", name: "Седан", price: "200 000", time: "~30 мин" },
+  { id: "premium", icon: "🚙", name: "Кроссовер", price: "280 000", time: "~40 мин", popular: true },
+  { id: "detail", icon: "🚐", name: "Минивэн", price: "360 000", time: "~50 мин" },
 ];
 
 type SavedAddress = { id: string; label: string; address: string; lat: number; lng: number; is_default: boolean };
