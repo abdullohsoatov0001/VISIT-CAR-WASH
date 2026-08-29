@@ -1,6 +1,6 @@
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
-import { tgSendMessage, tgAnswerCallbackQuery, tgDownloadFile } from "@/lib/telegram";
+import { tgSendMessage, tgAnswerCallbackQuery, tgDownloadFile, tgSendPhotos } from "@/lib/telegram";
 import { buildPaymentDetails, MANUAL_PAYMENT_METHODS } from "@/lib/payment";
 import { workerEarning } from "@/lib/commission";
 
@@ -199,6 +199,15 @@ async function notifyClient(db: ReturnType<typeof admin>, userId: string, title:
   if (cli?.telegram_chat_id) await tgSendMessage(cli.telegram_chat_id as number, `${title}\n${body}`);
 }
 
+async function clientChatId(db: ReturnType<typeof admin>, userId: string): Promise<number | null> {
+  const { data: cli } = await db.from("profiles").select("telegram_chat_id").eq("id", userId).maybeSingle();
+  return (cli?.telegram_chat_id as number) ?? null;
+}
+
+const ratingKeyboard = (orderId: string) => ({
+  inline_keyboard: [[1, 2, 3, 4, 5].map((n) => ({ text: "⭐".repeat(n), callback_data: `rate:${orderId}:${n}` }))],
+});
+
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
   if (secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
@@ -329,12 +338,15 @@ export async function POST(req: NextRequest) {
           await tgSendMessage(chatId, "Не удалось сохранить фото, попробуйте ещё раз.");
           return NextResponse.json({ ok: true });
         }
+        const cid = await clientChatId(db, active.user_id);
         if (!(active.before_photos?.length)) {
           await db.from("orders").update({ before_photos: [url], status: "in_progress" }).eq("id", active.id);
           await tgSendMessage(chatId, "✅ Фото ДО сохранено. Помойте машину, пришлите фото ПОСЛЕ, затем нажмите «Завершить заказ».");
+          if (cid) await tgSendPhotos(cid, [url], "📸 Фото ДО мойки");
         } else {
           await db.from("orders").update({ after_photos: [...(active.after_photos ?? []), url] }).eq("id", active.id);
           await tgSendMessage(chatId, "✅ Фото ПОСЛЕ сохранено. Можно отправить ещё или нажать «Завершить заказ».");
+          if (cid) await tgSendPhotos(cid, [url], "✨ Фото ПОСЛЕ мойки");
         }
         return NextResponse.json({ ok: true });
       }
@@ -527,7 +539,9 @@ export async function POST(req: NextRequest) {
       await tgSendMessage(chatId, "📸 Отправьте фото <b>ДО</b> мойки — просто пришлите фото сюда.");
     } else if (action === "wdn" && order.status === "in_progress") {
       await db.from("orders").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", orderId);
-      await notifyClient(db, order.user_id, "Мойка завершена ✨", `Заказ ${order.order_number} выполнен. Оцените мойщика в приложении!`);
+      await db.from("notifications").insert({ user_id: order.user_id, type: "order", title: "Мойка завершена ✨", body: `Заказ ${order.order_number} выполнен.` });
+      const cid = await clientChatId(db, order.user_id);
+      if (cid) await tgSendMessage(cid, `✨ Мойка по заказу <b>${order.order_number}</b> завершена! Оцените мойщика:`, ratingKeyboard(orderId));
       await tgAnswerCallbackQuery(callback.id, "Заказ завершён");
       await tgSendMessage(chatId, `✅ Заказ <b>${order.order_number}</b> завершён. Спасибо за работу!`);
       return NextResponse.json({ ok: true });
